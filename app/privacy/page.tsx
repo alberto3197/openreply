@@ -1,26 +1,53 @@
 import type { Metadata } from "next";
 import LegalShell from "@/components/legal-shell";
+import { getLegalConfig } from "@/lib/legal-config";
+
+// Read the controller identity per request instead of inlining it at build time.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Privacy Policy - OpenReply",
   description:
-    "How OpenReply handles Instagram account data, webhook payloads, billing data, and customer campaign information.",
+    "How this OpenReply instance handles Instagram account data, webhook payloads, and campaign information.",
 };
 
 export default function PrivacyPage() {
+  const { controllerName, contactEmail, dataLocation, updatedAt } =
+    getLegalConfig();
+
   return (
     <LegalShell
       title="Privacy Policy"
-      description="OpenReply helps businesses send Meta-compliant private replies when people comment on connected Instagram posts or reels."
-      updatedAt="May 24, 2026"
+      description="This OpenReply instance sends Meta-compliant private replies when people comment on the connected Instagram posts or reels."
+      updatedAt={updatedAt}
     >
+      <section>
+        <h2 className="text-xl font-bold text-white">Who Is Responsible</h2>
+        <p className="mt-3">
+          The data controller for this instance is {controllerName}. This is a
+          private deployment operated for its own Instagram professional
+          accounts. It is not a hosted service offered to third parties, and it
+          has no customers, subscriptions, or billing.
+        </p>
+        <p className="mt-3">
+          For any question about your data, or to exercise the rights described
+          below, write to {contactEmail}.
+        </p>
+      </section>
+
       <section>
         <h2 className="text-xl font-bold text-white">Data We Collect</h2>
         <p className="mt-3">
-          We collect account email addresses for authentication, workspace and
-          billing metadata, connected Instagram account identifiers, encrypted
-          Instagram access tokens, campaign settings, webhook payloads,
-          comments needed to process campaigns, delivery logs, and operational
+          If you comment on one of the connected posts or send a direct message
+          to one of the connected accounts, this instance processes your
+          Instagram username and account identifier, the text of your comment or
+          message, the replies sent to you, delivery logs, and — where tracked
+          links are used in a campaign — the fact that a link was clicked.
+        </p>
+        <p className="mt-3">
+          For the operator account itself, it stores an email address for
+          authentication, the connected Instagram account identifiers, encrypted
+          Instagram access tokens, campaign settings, and operational
           diagnostics.
         </p>
       </section>
@@ -28,10 +55,10 @@ export default function PrivacyPage() {
       <section>
         <h2 className="text-xl font-bold text-white">How We Use Data</h2>
         <p className="mt-3">
-          We use this data to authenticate users, connect Instagram
-          integrations, match comment keywords, send private replies through the
-          official Meta APIs, prevent duplicate sends, troubleshoot failures,
-          and protect the service.
+          This data is used to match comment keywords, send private replies
+          through the official Meta APIs, prevent duplicate sends, troubleshoot
+          failures, and protect the service. It is not sold, and it is not used
+          to build advertising profiles.
         </p>
       </section>
 
@@ -46,29 +73,43 @@ export default function PrivacyPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-white">Subprocessors</h2>
+        <h2 className="text-xl font-bold text-white">Where Data Is Stored</h2>
         <p className="mt-3">
-          The production service may use hosting, database, Redis queue, email,
-          and observability providers such as Vercel, Railway, PostgreSQL,
-          Redis, and Resend. These providers process data only as needed to run
-          the service.
+          The application and its database run on a single private server
+          operated by the controller, located in {dataLocation}. Meta is the
+          source of the comments and the channel for the replies. Resend
+          delivers the sign-in emails for the operator account. There are no
+          other processors: this instance does not use Vercel, Railway, or any
+          managed platform provider.
         </p>
       </section>
 
       <section>
         <h2 className="text-xl font-bold text-white">Retention And Deletion</h2>
         <p className="mt-3">
-          Customers can disconnect Instagram from settings, which removes the
-          stored Instagram connection and stops campaigns. For account or data
-          deletion, follow the Data Deletion page linked from the footer.
+          Comment and message records are kept only as long as they are needed
+          to run and audit the automation. You can ask for your data to be
+          deleted at any time — see the Data Deletion page linked from the
+          footer, or write to {contactEmail}.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-bold text-white">Your Rights</h2>
+        <p className="mt-3">
+          You may request access to your data, its correction or deletion, a
+          restriction of its processing, or object to the processing altogether.
+          Write to {contactEmail} and the request will be answered. If you
+          believe your request has not been handled properly, you can lodge a
+          complaint with your national data protection authority — in Spain,
+          the Agencia Española de Protección de Datos.
         </p>
       </section>
 
       <section>
         <h2 className="text-xl font-bold text-white">Contact</h2>
         <p className="mt-3">
-          For privacy questions, contact the repository owner through GitHub or
-          the support email configured for the hosted OpenReply service.
+          {controllerName} — {contactEmail}
         </p>
       </section>
     </LegalShell>

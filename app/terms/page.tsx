@@ -4,14 +4,14 @@ import LegalShell from "@/components/legal-shell";
 export const metadata: Metadata = {
   title: "Terms of Service - OpenReply",
   description:
-    "Terms for using OpenReply's Instagram comment-to-DM campaign software.",
+    "Terms for this private OpenReply instance.",
 };
 
 export default function TermsPage() {
   return (
     <LegalShell
       title="Terms of Service"
-      description="These terms define acceptable use for OpenReply's hosted Instagram comment-to-DM campaign service."
+      description="These terms define acceptable use of this private OpenReply instance, which is operated by its owner for their own Instagram professional accounts."
       updatedAt="May 24, 2026"
     >
       <section>
@@ -45,9 +45,9 @@ export default function TermsPage() {
       <section>
         <h2 className="text-xl font-bold text-white">Open-Source Core</h2>
         <p className="mt-3">
-          The public repository is MIT licensed. Hosted SaaS infrastructure,
-          managed support, agency workflows, analytics, reports, and other paid
-          service features may be provided separately from the open-source core.
+          OpenReply is MIT licensed and this instance is self-hosted from that
+          source. It is not a hosted service: there is no subscription, no paid
+          tier, and no support offered to third parties.
         </p>
       </section>
     </LegalShell>
