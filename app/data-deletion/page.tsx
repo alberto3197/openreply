@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   title: "Data Deletion - OpenReply",
   description:
     "How to request deletion of data held by this OpenReply instance, whether or not you have an account.",
+  // Reachable by anyone who needs it, but kept out of search indexes.
+  robots: { index: false, follow: false },
 };
 
 export default function DataDeletionPage() {
@@ -65,7 +67,8 @@ export default function DataDeletionPage() {
       <section>
         <h2 className="text-xl font-bold text-white">Contact</h2>
         <p className="mt-3">
-          {controllerName} — {contactEmail}
+          {controllerName ? `${controllerName} — ` : ""}
+          {contactEmail}
         </p>
       </section>
     </LegalShell>

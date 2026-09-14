@@ -3,8 +3,9 @@ import LegalShell from "@/components/legal-shell";
 
 export const metadata: Metadata = {
   title: "Terms of Service - OpenReply",
-  description:
-    "Terms for this private OpenReply instance.",
+  description: "Terms for this private OpenReply instance.",
+  // Reachable by anyone who needs it, but kept out of search indexes.
+  robots: { index: false, follow: false },
 };
 
 export default function TermsPage() {

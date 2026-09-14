@@ -18,9 +18,20 @@ function fromEnv(name: string): string {
   return value ? value : NOT_CONFIGURED;
 }
 
+function optionalFromEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value ? value : null;
+}
+
 export interface LegalConfig {
-  /** Data controller: the person or company operating this instance. */
-  controllerName: string;
+  /**
+   * Data controller, when the operator chooses to publish a name.
+   *
+   * Optional: leaving it unset drops the named-controller sentence and leaves
+   * the contact address as the route to the operator. Setting it later needs
+   * only an environment change, since these routes render per request.
+   */
+  controllerName: string | null;
   /** Monitored address where rights requests arrive. */
   contactEmail: string;
   /** Country where the server storing the data is located. */
@@ -31,7 +42,7 @@ export interface LegalConfig {
 
 export function getLegalConfig(): LegalConfig {
   return {
-    controllerName: fromEnv("LEGAL_CONTROLLER_NAME"),
+    controllerName: optionalFromEnv("LEGAL_CONTROLLER_NAME"),
     contactEmail: fromEnv("LEGAL_CONTACT_EMAIL"),
     dataLocation: fromEnv("LEGAL_DATA_LOCATION"),
     updatedAt: "September 14, 2026",

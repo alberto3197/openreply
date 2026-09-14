@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   title: "Privacy Policy - OpenReply",
   description:
     "How this OpenReply instance handles Instagram account data, webhook payloads, and campaign information.",
+  // Reachable by anyone who needs it, but kept out of search indexes.
+  robots: { index: false, follow: false },
 };
 
 export default function PrivacyPage() {
@@ -24,10 +26,11 @@ export default function PrivacyPage() {
       <section>
         <h2 className="text-xl font-bold text-white">Who Is Responsible</h2>
         <p className="mt-3">
-          The data controller for this instance is {controllerName}. This is a
-          private deployment operated for its own Instagram professional
-          accounts. It is not a hosted service offered to third parties, and it
-          has no customers, subscriptions, or billing.
+          {controllerName ? `The data controller for this instance is ${controllerName}. ` : ""}
+          This instance is a private deployment, run by the operator of the
+          connected Instagram professional accounts and reachable at the address
+          below. It is not a hosted service offered to third parties, and it has
+          no customers, subscriptions, or billing.
         </p>
         <p className="mt-3">
           For any question about your data, or to exercise the rights described
@@ -109,7 +112,8 @@ export default function PrivacyPage() {
       <section>
         <h2 className="text-xl font-bold text-white">Contact</h2>
         <p className="mt-3">
-          {controllerName} — {contactEmail}
+          {controllerName ? `${controllerName} — ` : ""}
+          {contactEmail}
         </p>
       </section>
     </LegalShell>
