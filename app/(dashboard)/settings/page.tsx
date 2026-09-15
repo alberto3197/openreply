@@ -26,6 +26,15 @@ interface SettingsData {
   >;
 }
 
+/** Per-account human delays, keyed by account id. */
+type AccountDelays = Record<
+  string,
+  { publicReplyDelaySeconds: number; dmDelaySeconds: number }
+>;
+
+const MAX_PUBLIC_REPLY_DELAY_SECONDS = 120;
+const MAX_DM_DELAY_SECONDS = 60;
+
 interface WorkspaceMembersData {
   currentUserRole: "OWNER" | "ADMIN" | "MEMBER";
   members: Array<{
@@ -57,16 +66,53 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [memberError, setMemberError] = useState<string | null>(null);
+  const [delays, setDelays] = useState<AccountDelays>({});
+  const [delayError, setDelayError] = useState<{
+    accountId: string;
+    message: string;
+  } | null>(null);
+  // The id of the account whose delays were just saved, so the form can say so.
+  // Cleared on the next edit or save attempt rather than on a timer, so the
+  // confirmation never contradicts what is currently on screen.
+  const [delaySaved, setDelaySaved] = useState<string | null>(null);
+  // Distinguishes "this account has no delay settings loaded" from "the request
+  // for them failed". Without it a failed fetch would just render nothing.
+  const [delaysUnavailable, setDelaysUnavailable] = useState(false);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/dashboard/stats").then((res) => res.json()),
       fetch("/api/workspace/members").then((res) => res.json()),
+      // The stats payload carries the account list, but not these settings;
+      // the accounts route is where they are read and written.
+      fetch("/api/instagram/accounts").then((res) => res.json()),
     ])
-      .then(([statsPayload, membersPayload]) => {
+      .then(([statsPayload, membersPayload, accountsPayload]) => {
         if (statsPayload.success) setData(statsPayload.data);
         if (membersPayload.success) setMembersData(membersPayload.data);
+        if (!accountsPayload.success) {
+          setDelaysUnavailable(true);
+        } else {
+          setDelays(
+            Object.fromEntries(
+              accountsPayload.data.instagramAccounts.map(
+                (account: {
+                  id: string;
+                  publicReplyDelaySeconds: number;
+                  dmDelaySeconds: number;
+                }) => [
+                  account.id,
+                  {
+                    publicReplyDelaySeconds: account.publicReplyDelaySeconds,
+                    dmDelaySeconds: account.dmDelaySeconds,
+                  },
+                ]
+              )
+            )
+          );
+        }
       })
+      .catch(() => setDelaysUnavailable(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -88,6 +134,61 @@ export default function SettingsPage() {
       body: JSON.stringify({ instagramAccountId }),
     });
     window.location.reload();
+  }
+
+  // Clamp in the input itself so what the operator sees is always what the API
+  // will accept — a number input lets anything be typed, arrows included.
+  function updateDelay(
+    accountId: string,
+    field: "publicReplyDelaySeconds" | "dmDelaySeconds",
+    raw: string
+  ) {
+    const max =
+      field === "publicReplyDelaySeconds"
+        ? MAX_PUBLIC_REPLY_DELAY_SECONDS
+        : MAX_DM_DELAY_SECONDS;
+    const parsed = Number.parseInt(raw, 10);
+    const value = Number.isNaN(parsed)
+      ? 0
+      : Math.min(Math.max(Math.trunc(parsed), 0), max);
+
+    setDelaySaved((current) => (current === accountId ? null : current));
+    setDelays((current) => ({
+      ...current,
+      [accountId]: { ...current[accountId], [field]: value },
+    }));
+  }
+
+  async function saveDelays(event: React.FormEvent, accountId: string) {
+    event.preventDefault();
+    setDelayError(null);
+    setDelaySaved(null);
+    setBusy(`delays:${accountId}`);
+    try {
+      const res = await fetch(
+        `/api/instagram/accounts?id=${encodeURIComponent(accountId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(delays[accountId]),
+        }
+      );
+      const payload = await res.json();
+      if (payload.success) {
+        setDelaySaved(accountId);
+      } else {
+        setDelayError({
+          accountId,
+          message: payload.error ?? "Could not save the delays",
+        });
+      }
+    } catch {
+      // A network failure or a non-JSON response must not leave the form
+      // looking as though the save went through.
+      setDelayError({ accountId, message: "Could not reach the server" });
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function inviteMember(event: React.FormEvent) {
@@ -184,29 +285,109 @@ export default function SettingsPage() {
             {accounts.map((account) => (
               <div
                 key={account.id}
-                className="flex flex-col gap-3 rounded border border-border bg-surface/70 p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="rounded border border-border bg-surface/70 p-4"
               >
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    @{account.username}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    {account.provider === "ZERNIO" ? "Connected via Zernio" : <>Token expires{" "}
-                    {account.tokenExpiresAt
-                      ? new Date(account.tokenExpiresAt).toLocaleDateString()
-                      : "not available"}</>}{" "}
-                    · {account.webhookSubscribed ? "Webhook ready" : "Webhook pending"}
-                  </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      @{account.username}
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      {account.provider === "ZERNIO" ? "Connected via Zernio" : <>Token expires{" "}
+                      {account.tokenExpiresAt
+                        ? new Date(account.tokenExpiresAt).toLocaleDateString()
+                        : "not available"}</>}{" "}
+                      · {account.webhookSubscribed ? "Webhook ready" : "Webhook pending"}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => disconnectInstagram(account.id)}
+                    disabled={busy === `disconnect:${account.id}`}
+                    className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
+                  >
+                    {busy === `disconnect:${account.id}`
+                      ? "Disconnecting..."
+                      : "Disconnect"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => disconnectInstagram(account.id)}
-                  disabled={busy === `disconnect:${account.id}`}
-                  className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
-                >
-                  {busy === `disconnect:${account.id}`
-                    ? "Disconnecting..."
-                    : "Disconnect"}
-                </button>
+
+                {delays[account.id] ? (
+                  <form
+                    onSubmit={(event) => saveDelays(event, account.id)}
+                    className="mt-4 border-t border-border pt-4"
+                  >
+                    <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          Wait before replying to the comment
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={MAX_PUBLIC_REPLY_DELAY_SECONDS}
+                          value={delays[account.id].publicReplyDelaySeconds}
+                          onChange={(event) =>
+                            updateDelay(
+                              account.id,
+                              "publicReplyDelaySeconds",
+                              event.target.value
+                            )
+                          }
+                          className="rounded border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent/40"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          Wait before sending the DM
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={MAX_DM_DELAY_SECONDS}
+                          value={delays[account.id].dmDelaySeconds}
+                          onChange={(event) =>
+                            updateDelay(
+                              account.id,
+                              "dmDelaySeconds",
+                              event.target.value
+                            )
+                          }
+                          className="rounded border border-border bg-surface px-4 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent/40"
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={busy === `delays:${account.id}`}
+                        className="rounded bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                      >
+                        {busy === `delays:${account.id}` ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted">
+                      Seconds to wait before answering — up to{" "}
+                      {MAX_PUBLIC_REPLY_DELAY_SECONDS} for the comment reply and{" "}
+                      {MAX_DM_DELAY_SECONDS} for the DM. A short pause makes the
+                      replies feel less automated, and only applies to comments
+                      received in real time.
+                    </p>
+                    {delaySaved === account.id && (
+                      <p className="mt-2 text-sm text-success">
+                        Delays saved.
+                      </p>
+                    )}
+                    {delayError?.accountId === account.id && (
+                      <p className="mt-2 text-sm text-error">
+                        {delayError.message}
+                      </p>
+                    )}
+                  </form>
+                ) : delaysUnavailable ? (
+                  <p className="mt-4 border-t border-border pt-4 text-xs text-muted">
+                    Reply delays could not be loaded, so they cannot be changed
+                    here right now. Reload the page to try again — the delays
+                    already saved for this account are unaffected.
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
