@@ -5,6 +5,7 @@ const {
   mockSendPrivateReply,
   mockSendPrivateReplyWithLinkButton,
   mockSendPrivateReplyWithButton,
+  mockSendCommentReply,
   mockGetUserFollowStatus,
   mockSendDirectMessageWithButton,
   mockSendDirectMessage,
@@ -41,6 +42,7 @@ const {
   mockSendPrivateReply: vi.fn(),
   mockSendPrivateReplyWithLinkButton: vi.fn(),
   mockSendPrivateReplyWithButton: vi.fn(),
+  mockSendCommentReply: vi.fn(),
   mockGetUserFollowStatus: vi.fn(),
   mockSendDirectMessageWithButton: vi.fn(),
   mockSendDirectMessage: vi.fn(),
@@ -66,7 +68,7 @@ vi.mock("@/lib/meta/client", () => ({
   sendDirectMessageWithButton: mockSendDirectMessageWithButton,
   sendDirectMessage: mockSendDirectMessage,
   sendDirectMessageWithLinkButton: mockSendDirectMessageWithLinkButton,
-  sendCommentReply: vi.fn(),
+  sendCommentReply: mockSendCommentReply,
   MetaApiError: class MetaApiError extends Error {
     code: number;
     constructor(
@@ -283,6 +285,7 @@ beforeEach(() => {
     recipient_id: "commenter_999",
     message_id: "msg_006",
   });
+  mockSendCommentReply.mockResolvedValue({ id: "comment_reply_001" });
   mockGetUserFollowStatus.mockResolvedValue(true);
 });
 
@@ -1246,6 +1249,115 @@ it('keeps an unconfirmed public reply untouched after the DM was delivered', asy
   mockPrisma.dmLog.findUnique.mockResolvedValue({ status: 'SENT', publicReplyDeliveryUnconfirmed: true, publicReplySentAt: null });
   await getProcessor()(createMockJob());
   expect(mockPrisma.dmLog.update).not.toHaveBeenCalled();
+});
+
+describe("DM Worker — per-leg human delays", () => {
+  // The webhook splits one comment into two delayed jobs. Both legs share this
+  // campaign: it answers publicly AND sends the DM, so a leg that overreaches
+  // is visible as the other leg's side effect.
+  const replyingAutomation = {
+    ...mockAutomation,
+    publicReplyEnabled: true,
+    publicReplyMessage: "Sent you a DM!",
+    publicReplyMessages: [],
+  };
+
+  // Mid-flight state: the campaign matched, a log row exists, and neither leg
+  // has delivered yet. This is what the sibling leg sees while the other one is
+  // still sitting on its delay.
+  const bothLegsPending = {
+    status: "PENDING",
+    publicReplySentAt: null,
+    dmDeliveryUnconfirmed: false,
+    publicReplyDeliveryUnconfirmed: false,
+  };
+
+  beforeEach(() => {
+    mockPrisma.automation.findMany.mockResolvedValue([replyingAutomation]);
+  });
+
+  it('leg "reply" posts the public reply and leaves the DM to its sibling', async () => {
+    await getProcessor()(createMockJob({ ...mockJobData, leg: "reply" }));
+
+    expect(mockSendCommentReply).toHaveBeenCalledWith(
+      "decrypted_token",
+      "comment_555",
+      expect.stringContaining("Sent you a DM")
+    );
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithButton).not.toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithLinkButton).not.toHaveBeenCalled();
+    // The DM leg was never entered at all, so it burned neither a rate slot nor
+    // a plan reservation that the real DM job still needs.
+    expect(mockReserveDMSlot).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+  });
+
+  it('leg "dm" sends the DM and leaves the public reply to its sibling', async () => {
+    await getProcessor()(createMockJob({ ...mockJobData, leg: "dm" }));
+
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
+
+  it("does both when no leg is set, as the reconciler and pre-deploy jobs enqueue", async () => {
+    await getProcessor()(createMockJob());
+
+    expect(mockSendCommentReply).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateReply).toHaveBeenCalledTimes(1);
+  });
+
+  // The four tests below assert the skip decision itself: decryptToken is the
+  // first thing processComment does once the guard lets a campaign through, so
+  // "was it called" reads the branch directly rather than inferring it from a
+  // send that could have been suppressed further downstream.
+  it('leg "reply" does not bail out just because the DM is still pending', async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue(bothLegsPending);
+
+    await getProcessor()(createMockJob({ ...mockJobData, leg: "reply" }));
+
+    expect(mockDecryptToken).toHaveBeenCalled();
+    expect(mockSendCommentReply).toHaveBeenCalledTimes(1);
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it('leg "dm" does not bail out just because the public reply is still pending', async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue(bothLegsPending);
+
+    await getProcessor()(createMockJob({ ...mockJobData, leg: "dm" }));
+
+    expect(mockDecryptToken).toHaveBeenCalled();
+    expect(mockSendPrivateReply).toHaveBeenCalledTimes(1);
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
+
+  it('leg "reply" skips entirely once its own reply posted, DM pending or not', async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      ...bothLegsPending,
+      publicReplySentAt: new Date("2026-09-15T09:00:00.000Z"),
+    });
+
+    await getProcessor()(createMockJob({ ...mockJobData, leg: "reply" }));
+
+    expect(mockDecryptToken).not.toHaveBeenCalled();
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it('leg "dm" skips entirely once its own DM sent, public reply pending or not', async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      ...bothLegsPending,
+      status: "SENT",
+    });
+
+    await getProcessor()(createMockJob({ ...mockJobData, leg: "dm" }));
+
+    expect(mockDecryptToken).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    // A legless run would have come back here to retry the public reply; the
+    // reply leg owns that now, so this one has nothing left to do.
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
 });
 
 describe("durable Zernio postback delivery", () => {

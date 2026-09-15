@@ -12,7 +12,13 @@ export async function processInstagramWebhook({ payload: incoming, provider, wor
   if (incoming.object !== 'instagram' || !Array.isArray(incoming.entry)) return;
   const accounts = await prisma.instagramAccount.findMany({
     where: { instagramId: { in: incoming.entry.map(e => e.id) }, provider, ...(workspaceId ? { workspaceId } : {}) },
-    select: { id: true, instagramId: true, workspaceId: true },
+    select: {
+      id: true,
+      instagramId: true,
+      workspaceId: true,
+      publicReplyDelaySeconds: true,
+      dmDelaySeconds: true,
+    },
   });
   const accountMap = new Map(accounts.map(a => [a.instagramId, a]));
   const allowed = new Set(accountMap.keys());
@@ -40,21 +46,40 @@ export async function processInstagramWebhook({ payload: incoming, provider, wor
       const account = accountMap.get(event.instagramAccountId);
       if (!account) continue;
 
+      // The public reply and the DM are enqueued as two independent jobs so the
+      // operator can make each one wait a different, human-looking amount of
+      // time before it fires. The worker is already idempotent per leg, so the
+      // two runs cannot duplicate each other's work.
+      const commentJob = {
+        instagramAccountId: event.instagramAccountId,
+        accountConnectionId: account.id,
+        commentId: event.commentId,
+        commentText: event.commentText,
+        commenterId: event.commenterId,
+        commenterName: event.commenterName,
+        mediaId: event.mediaId,
+        originalMediaId: event.originalMediaId,
+        source: "WEBHOOK" as const,
+      };
+
+      // The leg suffix on the job id is load-bearing: the base id is
+      // deterministic, so without it BullMQ would treat the second add as a
+      // duplicate of the first and silently drop one of the two legs.
       await queue.add(
         "process-comment",
+        { ...commentJob, leg: "reply" },
         {
-          instagramAccountId: event.instagramAccountId,
-          accountConnectionId: accountMap.get(event.instagramAccountId)?.id,
-          commentId: event.commentId,
-          commentText: event.commentText,
-          commenterId: event.commenterId,
-          commenterName: event.commenterName,
-          mediaId: event.mediaId,
-          originalMediaId: event.originalMediaId,
-          source: "WEBHOOK",
-        },
+          delay: account.publicReplyDelaySeconds * 1000,
+          jobId: `comment_${event.instagramAccountId}_${event.commentId}_reply`,
+        }
+      );
+
+      await queue.add(
+        "process-comment",
+        { ...commentJob, leg: "dm" },
         {
-          jobId: `comment_${event.instagramAccountId}_${event.commentId}`,
+          delay: account.dmDelaySeconds * 1000,
+          jobId: `comment_${event.instagramAccountId}_${event.commentId}_dm`,
         }
       );
 

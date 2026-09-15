@@ -225,8 +225,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     commenterName,
     mediaId,
     originalMediaId,
+    leg,
   } = job.data;
   const requeueAttempt = job.data.requeueAttempt ?? 0;
+
+  // The webhook splits the reaction into two independently delayed jobs, so a
+  // run may be responsible for only one leg. No leg (the polling reconciler, or
+  // a rate-limit requeue of a legacy job) means both, exactly as before.
+  const runsReply = leg !== "dm";
+  const runsDm = leg !== "reply";
 
   const automations = await prisma.automation.findMany({
     where: {
@@ -285,18 +292,23 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     const alreadyDmd = existingLog?.status === "SENT";
     const alreadyPublicReplied = Boolean(existingLog?.publicReplySentAt);
-    const needsDm = !alreadyDmd && !existingLog?.dmDeliveryUnconfirmed;
+    const needsDm =
+      runsDm && !alreadyDmd && !existingLog?.dmDeliveryUnconfirmed;
+    const needsPublicReply =
+      runsReply &&
+      automation.publicReplyEnabled &&
+      !alreadyPublicReplied &&
+      !existingLog?.publicReplyDeliveryUnconfirmed;
 
     // Skip only when there is genuinely nothing left to do. A comment whose DM
     // already sent but whose public reply never posted (e.g. it hit a rate
-    // limit) must still come back so the public reply can be retried.
+    // limit) must still come back so the public reply can be retried. Each leg
+    // is judged on its own work only: a "reply" run must not bail out because
+    // the DM is still pending (its sibling job owns that, possibly on a longer
+    // delay), and a "dm" run must not bail out because the public reply has not
+    // posted yet.
     if (existingLog?.status === "SKIPPED_PLAN_LIMIT") continue;
-    if (
-      !needsDm &&
-      (alreadyPublicReplied || existingLog?.publicReplyDeliveryUnconfirmed || !automation.publicReplyEnabled)
-    ) {
-      continue;
-    }
+    if (!needsDm && !needsPublicReply) continue;
 
     if (!hasInstagramCredentials(automation.instagramAccount)) {
       await prisma.dmLog.upsert({
@@ -402,6 +414,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           ? [automation.publicReplyMessage]
           : [];
     if (
+      runsReply &&
       automation.publicReplyEnabled &&
       replyPool.length > 0 &&
       !existingLog?.publicReplySentAt &&
@@ -445,8 +458,9 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       }
     }
 
-    // DM already sent on an earlier pass; the public reply retry above was all
-    // this run needed. Don't re-send the DM.
+    // Nothing left to do on the DM: either it already went out on an earlier
+    // pass (the public reply retry above was all this run needed), or this run
+    // is the "reply" leg and its sibling job owns the DM.
     if (!needsDm) continue;
 
     // Meta allows exactly ONE private reply per comment, ever — across every

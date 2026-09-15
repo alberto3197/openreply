@@ -13,6 +13,27 @@ import {
 } from "../lib/meta/webhook";
 import { createHmac } from "crypto";
 
+const { mockPrisma, mockQueueAdd } = vi.hoisted(() => ({
+  mockPrisma: {
+    instagramAccount: { findMany: vi.fn() },
+    webhookEvent: { create: vi.fn(), update: vi.fn() },
+    dmLog: { findMany: vi.fn() },
+  },
+  mockQueueAdd: vi.fn(),
+}));
+
+vi.mock("@/lib/db/client", () => ({ prisma: mockPrisma }));
+
+vi.mock("@/lib/queue/client", () => ({
+  getDMQueue: () => ({ add: mockQueueAdd }),
+  getRedisConnection: vi.fn(),
+  POSTBACK_JOB_NAME: "process-postback",
+  FOLLOWUP_JOB_NAME: "process-followup",
+  MESSAGE_JOB_NAME: "process-message",
+}));
+
+import { processInstagramWebhook } from "../lib/queue/process-webhook";
+
 // Mock the environment variable
 beforeEach(() => {
   vi.stubEnv("FACEBOOK_APP_SECRET", "test_app_secret_12345");
@@ -513,5 +534,116 @@ describe("parseReadEvents", () => {
     };
 
     expect(parseReadEvents(payload)).toHaveLength(0);
+  });
+});
+
+describe("processInstagramWebhook — human delays", () => {
+  const commentPayload = {
+    object: "instagram",
+    entry: [
+      {
+        id: "ig_456",
+        time: 1234567890,
+        changes: [
+          {
+            field: "comments",
+            value: {
+              id: "comment_456",
+              text: "I want the LINK!",
+              from: { id: "user_789", username: "testuser" },
+              media: { id: "media_101" },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPrisma.instagramAccount.findMany.mockResolvedValue([
+      {
+        id: "ig_account_row_1",
+        instagramId: "ig_456",
+        workspaceId: "workspace_123",
+        publicReplyDelaySeconds: 12,
+        dmDelaySeconds: 7,
+      },
+    ]);
+    mockPrisma.webhookEvent.create.mockResolvedValue({ id: "webhook_event_1" });
+    mockPrisma.webhookEvent.update.mockResolvedValue({});
+    mockPrisma.dmLog.findMany.mockResolvedValue([]);
+  });
+
+  function commentAdds() {
+    return mockQueueAdd.mock.calls.filter(
+      ([name]) => name === "process-comment"
+    );
+  }
+
+  it("enqueues one job per leg for a single comment", async () => {
+    await processInstagramWebhook({
+      payload: commentPayload,
+      provider: "META",
+    });
+
+    const adds = commentAdds();
+    expect(adds).toHaveLength(2);
+    expect(adds.map(([, data]) => data.leg)).toEqual(["reply", "dm"]);
+    // Both legs describe the same comment; only the leg differs.
+    for (const [, data] of adds) {
+      expect(data).toMatchObject({
+        instagramAccountId: "ig_456",
+        accountConnectionId: "ig_account_row_1",
+        commentId: "comment_456",
+        commenterId: "user_789",
+        mediaId: "media_101",
+        source: "WEBHOOK",
+      });
+    }
+  });
+
+  it("takes each leg's delay from the account, in milliseconds", async () => {
+    await processInstagramWebhook({
+      payload: commentPayload,
+      provider: "META",
+    });
+
+    const [[, , replyOptions], [, , dmOptions]] = commentAdds();
+    expect(replyOptions.delay).toBe(12_000);
+    expect(dmOptions.delay).toBe(7_000);
+  });
+
+  it("gives each leg its own job id, so BullMQ cannot dedupe one away", async () => {
+    await processInstagramWebhook({
+      payload: commentPayload,
+      provider: "META",
+    });
+
+    const [[, , replyOptions], [, , dmOptions]] = commentAdds();
+    expect(replyOptions.jobId).toBe("comment_ig_456_comment_456_reply");
+    expect(dmOptions.jobId).toBe("comment_ig_456_comment_456_dm");
+    expect(replyOptions.jobId).not.toBe(dmOptions.jobId);
+  });
+
+  it("does not delay either leg when the account is left at its defaults", async () => {
+    mockPrisma.instagramAccount.findMany.mockResolvedValue([
+      {
+        id: "ig_account_row_1",
+        instagramId: "ig_456",
+        workspaceId: "workspace_123",
+        publicReplyDelaySeconds: 0,
+        dmDelaySeconds: 0,
+      },
+    ]);
+
+    await processInstagramWebhook({
+      payload: commentPayload,
+      provider: "META",
+    });
+
+    for (const [, , options] of commentAdds()) {
+      expect(options.delay).toBe(0);
+    }
   });
 });

@@ -37,6 +37,10 @@ export interface ProcessCommentJob {
   // Which path enqueued this comment. It is not copied to ProcessedComment or
   // used for reconciliation dedup.
   source?: CommentSource;
+  // Which half of the comment reaction this run should perform. The webhook
+  // enqueues both legs separately so each can carry its own delay; omitted
+  // (e.g. from the polling reconciler) means "do both, immediately".
+  leg?: "reply" | "dm";
 }
 
 // Delivered when a user taps an opening DM's button — carries the reveal target.

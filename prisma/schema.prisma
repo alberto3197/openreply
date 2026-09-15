@@ -139,6 +139,13 @@ model InstagramAccount {
   connectedAt       DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  /// Seconds to wait before reacting to a comment, so the account does not
+  /// answer instantly like a bot. Only the webhook (real-time) path honours
+  /// these: the polling reconciler is already catching up on comments that
+  /// arrived late, and delaying those further would only hurt.
+  publicReplyDelaySeconds Int @default(0)
+  dmDelaySeconds          Int @default(0)
+
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   automations Automation[]
   dmLogs      DmLog[]

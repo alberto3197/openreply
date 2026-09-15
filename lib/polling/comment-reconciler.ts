@@ -260,6 +260,11 @@ async function sweepCampaign({
       // drop this add, so the comment would never be retried. Dedup is handled
       // above (owner-reply + DmLog guards) and the worker is idempotent
       // (publicReplySentAt / SENT), so re-processing a comment is safe.
+      //
+      // No `leg` and no delay either: the per-account human delays exist to make
+      // a real-time reaction look less automated, but everything this sweep
+      // finds is a comment the webhook already missed and is therefore late
+      // already. Holding it back further would only delay the reply.
       await queue.add("process-comment", {
         instagramAccountId: account.instagramId,
         accountConnectionId: account.id,
