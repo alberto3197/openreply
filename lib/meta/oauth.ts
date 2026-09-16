@@ -78,8 +78,12 @@ export function getAuthorizationUrl(redirectUri: string, state: string): string 
   const params = new URLSearchParams({
     client_id: requireEnv("INSTAGRAM_APP_ID"),
     redirect_uri: redirectUri,
+    // The granted scopes are frozen into the access token at authorization
+    // time, so widening this list does not upgrade tokens that were already
+    // issued. Every connected account has to reconnect through this flow
+    // before it can use a newly added permission.
     scope:
-      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_manage_insights",
+      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_manage_insights,instagram_manage_engagement",
     response_type: "code",
     state,
   });
