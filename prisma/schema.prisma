@@ -285,6 +285,9 @@ model TrackedLink {
   slug           String   @unique
   label          String?
   destinationUrl String
+  // Button order in the DM: 0 is the primary link, 1 the second. Links created
+  // in one query share a `createdAt`, so the timestamp cannot order them.
+  position       Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -292,6 +295,7 @@ model TrackedLink {
   automation Automation  @relation(fields: [automationId], references: [id], onDelete: Cascade)
   clicks     LinkClick[]
 
+  @@unique([automationId, position])
   @@index([workspaceId])
   @@index([automationId])
 }

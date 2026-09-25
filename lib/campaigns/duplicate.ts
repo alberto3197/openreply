@@ -42,7 +42,7 @@ export async function duplicateCampaign({
 }) {
   const source = await prisma.automation.findFirst({
     where: { id: automationId, workspaceId },
-    include: { trackedLinks: { orderBy: { createdAt: "asc" } } },
+    include: { trackedLinks: { orderBy: { position: "asc" } } },
   });
 
   if (!source) return null;
@@ -70,6 +70,7 @@ export async function duplicateCampaign({
           slug: generateTrackedLinkSlug(),
           label: link.label,
           destinationUrl: link.destinationUrl,
+          position: link.position,
         })),
       },
     },

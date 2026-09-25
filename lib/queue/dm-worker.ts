@@ -261,7 +261,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           label: true,
           destinationUrl: true,
         },
-        orderBy: { createdAt: "asc" },
+        orderBy: { position: "asc" },
       },
     },
     orderBy: { createdAt: "asc" },
@@ -822,7 +822,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       workspace: true,
       trackedLinks: {
         select: { slug: true, label: true, destinationUrl: true },
-        orderBy: { createdAt: "asc" },
+        orderBy: { position: "asc" },
       },
     },
   });
@@ -1139,7 +1139,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       workspace: true,
       trackedLinks: {
         select: { slug: true, label: true, destinationUrl: true },
-        orderBy: { createdAt: "asc" },
+        orderBy: { position: "asc" },
       },
     },
     orderBy: { createdAt: "asc" },

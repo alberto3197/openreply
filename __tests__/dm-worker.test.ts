@@ -340,7 +340,7 @@ describe("DM Worker — Full Pipeline", () => {
             label: true,
             destinationUrl: true,
           },
-          orderBy: { createdAt: "asc" },
+          orderBy: { position: "asc" },
         },
       },
       orderBy: { createdAt: "asc" },

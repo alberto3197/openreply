@@ -55,6 +55,7 @@ const sourceCampaign = {
       slug: "tracked_1",
       label: "Primary campaign link",
       destinationUrl: "https://example.com/product",
+      position: 0,
       createdAt: new Date("2026-05-01T00:00:00.000Z"),
     },
     {
@@ -62,6 +63,7 @@ const sourceCampaign = {
       slug: "tracked_2",
       label: "Read the guide",
       destinationUrl: "https://example.com/guide",
+      position: 1,
       createdAt: new Date("2026-05-02T00:00:00.000Z"),
     },
   ],
@@ -175,10 +177,12 @@ describe("duplicateCampaign", () => {
       workspaceId: "workspace_123",
       label: "Primary campaign link",
       destinationUrl: "https://example.com/product",
+      position: 0,
     });
     expect(created[1]).toMatchObject({
       label: "Read the guide",
       destinationUrl: "https://example.com/guide",
+      position: 1,
     });
 
     const slugs = created.map((link: { slug: string }) => link.slug);

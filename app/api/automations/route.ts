@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
           destinationUrl: true,
           _count: { select: { clicks: true } },
         },
-        orderBy: { createdAt: "asc" },
+        orderBy: { position: "asc" },
       },
     },
     orderBy: { createdAt: "desc" },
@@ -351,6 +351,7 @@ export async function POST(request: NextRequest) {
     slug: string;
     label: string;
     destinationUrl: string;
+    position: number;
   }[] = [];
   if (trackedDestinationUrl) {
     linkCreates.push({
@@ -358,6 +359,7 @@ export async function POST(request: NextRequest) {
       slug: generateTrackedLinkSlug(),
       label: "Primary campaign link",
       destinationUrl: trackedDestinationUrl,
+      position: 0,
     });
   }
   if (secondaryDestinationUrl) {
@@ -366,6 +368,7 @@ export async function POST(request: NextRequest) {
       slug: generateTrackedLinkSlug(),
       label: secondaryButtonLabel?.trim() || "Open link",
       destinationUrl: secondaryDestinationUrl,
+      position: 1,
     });
   }
 
@@ -545,8 +548,7 @@ export async function PATCH(request: NextRequest) {
   // destination URL was supplied. `undefined` means "leave it alone".
   if (trackedDestinationUrl !== undefined && trackedDestinationUrl !== null) {
     const primaryLink = await prisma.trackedLink.findFirst({
-      where: { automationId },
-      orderBy: { createdAt: "asc" },
+      where: { automationId, position: 0 },
     });
 
     if (trackedDestinationUrl === "") {
@@ -566,20 +568,18 @@ export async function PATCH(request: NextRequest) {
           slug: generateTrackedLinkSlug(),
           label: "Primary campaign link",
           destinationUrl: trackedDestinationUrl,
+          position: 0,
         },
       });
     }
   }
 
   // Update, create, or clear the campaign's second tracked link. It is always
-  // the link at index [1] (ordered by createdAt), and its `label` holds the
-  // second button's title.
+  // the link at position 1, and its `label` holds the second button's title.
   if (secondaryDestinationUrl !== undefined && secondaryDestinationUrl !== null) {
-    const links = await prisma.trackedLink.findMany({
-      where: { automationId },
-      orderBy: { createdAt: "asc" },
+    const secondaryLink = await prisma.trackedLink.findFirst({
+      where: { automationId, position: 1 },
     });
-    const secondaryLink = links[1];
     const secondaryLabel = secondaryButtonLabel?.trim() || "Open link";
 
     if (secondaryDestinationUrl === "") {
@@ -599,6 +599,7 @@ export async function PATCH(request: NextRequest) {
           slug: generateTrackedLinkSlug(),
           label: secondaryLabel,
           destinationUrl: secondaryDestinationUrl,
+          position: 1,
         },
       });
     }
