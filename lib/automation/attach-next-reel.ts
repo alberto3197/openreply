@@ -6,10 +6,6 @@ import {
   type InstagramMedia,
 } from "@/lib/instagram/provider";
 
-function isReel(media: InstagramMedia): boolean {
-  return media.media_product_type === "REELS";
-}
-
 export type AttachNextReelResult = {
   checked: number;
   bound: number;
@@ -17,8 +13,8 @@ export type AttachNextReelResult = {
 };
 
 /**
- * Bind each pending "next reel" campaign to the earliest reel published after
- * it was created. Kept outside the HTTP route so the long-running worker can
+ * Bind each pending "next post or reel" campaign to the earliest feed media
+ * (reel, carousel or single image) published after it was created. Kept outside the HTTP route so the long-running worker can
  * run the same check on every comment-poll interval.
  */
 export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
@@ -54,15 +50,13 @@ export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
     checked += automations.length;
     if (!account || !hasInstagramCredentials(account)) continue;
 
-    let reels: InstagramMedia[];
+    let posts: InstagramMedia[];
     try {
       const context = await createInstagramContext(account);
       const media = await getUserMedia({ context, limit: 25 });
-      reels = media
-        .filter(isReel)
-        .sort(
-          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        );
+      posts = media.sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
     } catch (error) {
       failures.push(account.id);
       console.error("[attach-next-reel] media fetch failed", account.id, error);
@@ -70,17 +64,17 @@ export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
     }
 
     for (const automation of automations) {
-      // The "next" reel = the earliest one posted after the campaign was created.
-      const nextReel = reels.find(
-        (reel) => new Date(reel.timestamp) > automation.createdAt
+      // The "next" post = the earliest one posted after the campaign was created.
+      const nextPost = posts.find(
+        (post) => new Date(post.timestamp) > automation.createdAt
       );
-      if (!nextReel) continue;
+      if (!nextPost) continue;
 
       await prisma.automation.update({
         where: { id: automation.id },
         data: {
-          postId: nextReel.id,
-          postUrl: nextReel.permalink ?? null,
+          postId: nextPost.id,
+          postUrl: nextPost.permalink ?? null,
           pendingNextReel: false,
         },
       });
