@@ -125,3 +125,22 @@ export async function authenticateApiToken(
     tokenId: record.id,
   };
 }
+
+/**
+ * The token creator's current role in the token's workspace, or null once they
+ * have left it. Write tools look this up on every call instead of trusting the
+ * role at token creation, so a demoted admin's tokens lose write access on the
+ * very next request.
+ */
+export async function getApiTokenRole(auth: ApiTokenAuth) {
+  const membership = await prisma.workspaceMember.findUnique({
+    where: {
+      workspaceId_userId: {
+        workspaceId: auth.workspaceId,
+        userId: auth.userId,
+      },
+    },
+    select: { role: true },
+  });
+  return membership?.role ?? null;
+}
