@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 import { ZernioConnection } from "@/components/zernio-connection";
+import { McpTokensCard } from "@/components/mcp-tokens-card";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
 
 interface SettingsData {
@@ -504,6 +505,8 @@ export default function SettingsPage() {
           </form>
         )}
       </section>
+
+      <McpTokensCard />
 
       <section className="panel rounded p-4 sm:p-6">
         <h2 className="text-base font-semibold mb-6">Usage</h2>

@@ -23,6 +23,7 @@ model User {
   ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
   workspaceMembers  WorkspaceMember[]
   sentInvitations   WorkspaceInvitation[] @relation("WorkspaceInvitationsSent")
+  apiTokens         ApiToken[]
 }
 
 model Account {
@@ -85,6 +86,7 @@ model Workspace {
   linkClicks        LinkClick[]
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
+  apiTokens         ApiToken[]
 
   @@index([ownerId])
 }
@@ -415,6 +417,27 @@ model ZernioConnection {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// Personal access token for the MCP endpoint (/api/mcp). Only the SHA-256 of
+/// the token is stored; the plaintext is shown once at creation. Revoking sets
+/// revokedAt instead of deleting, so the row keeps its audit trail.
+model ApiToken {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  name        String
+  tokenHash   String    @unique
+  /// First characters of the token (e.g. "or_AbCd12"), for display only.
+  tokenPrefix String
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 // Claims persist independently of BullMQ retention so old taps never resend.
