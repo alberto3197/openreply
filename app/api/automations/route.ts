@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
+import {
+  calculateCtr,
+  CLICK_ROW_SELECT,
+  countUniqueClicksBy,
+  normalizeTopKeywords,
+} from "@/lib/tracking/analytics";
 import { buildTrackedUrl } from "@/lib/tracking/message";
+import { TRACKED_LINK_ORDER } from "@/lib/tracking/link-order";
 import { buildReportUrl, generateReportShareSlug } from "@/lib/reports/share";
 import {
   createCampaign,
@@ -50,7 +56,7 @@ export async function GET(request: NextRequest) {
           destinationUrl: true,
           _count: { select: { clicks: true } },
         },
-        orderBy: { position: "asc" },
+        orderBy: TRACKED_LINK_ORDER,
       },
     },
     orderBy: { createdAt: "desc" },
@@ -73,16 +79,15 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  const [statusCounts, clickCounts, keywordCounts] = await Promise.all([
+  const [statusCounts, clickRows, keywordCounts] = await Promise.all([
     prisma.dmLog.groupBy({
       by: ["automationId", "status"],
       where: { workspaceId },
       _count: { _all: true },
     }),
-    prisma.linkClick.groupBy({
-      by: ["automationId"],
+    prisma.linkClick.findMany({
       where: { workspaceId },
-      _count: { _all: true },
+      select: CLICK_ROW_SELECT,
     }),
     prisma.dmLog.groupBy({
       by: ["automationId", "matchedKeyword"],
@@ -121,9 +126,10 @@ export async function GET(request: NextRequest) {
     if (row.status.startsWith("SKIPPED_")) item.skipped += count;
   }
 
-  for (const row of clickCounts) {
-    const item = analytics.get(row.automationId);
-    if (item) item.clicks = row._count._all;
+  const clickCounts = countUniqueClicksBy(clickRows, (row) => row.automationId);
+  for (const [automationId, clicks] of clickCounts) {
+    const item = analytics.get(automationId);
+    if (item) item.clicks = clicks;
   }
 
   for (const automation of automationsWithReports) {

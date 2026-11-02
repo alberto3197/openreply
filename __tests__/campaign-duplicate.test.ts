@@ -14,6 +14,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { buildDuplicateName, duplicateCampaign } from "../lib/campaigns/duplicate";
+import { TRACKED_LINK_ORDER } from "../lib/tracking/link-order";
 
 // A campaign with every option turned on, shaped like the stored row.
 const sourceCampaign = {
@@ -189,6 +190,55 @@ describe("duplicateCampaign", () => {
     expect(slugs).not.toContain("tracked_1");
     expect(slugs).not.toContain("tracked_2");
     expect(new Set(slugs).size).toBe(2);
+  });
+
+  it("reads the original's links in button order", async () => {
+    await duplicateCampaign({
+      automationId: "automation_123",
+      workspaceId: "workspace_123",
+    });
+
+    expect(mockPrisma.automation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: { trackedLinks: { orderBy: TRACKED_LINK_ORDER } },
+      })
+    );
+  });
+
+  it("numbers the copy's links 0, 1, 2 even when the original's positions are tied", async () => {
+    // An older build writes position 0 for every link, so the original's
+    // positions cannot be copied as they are.
+    mockPrisma.automation.findFirst.mockResolvedValue({
+      ...sourceCampaign,
+      trackedLinks: [
+        { ...sourceCampaign.trackedLinks[0], position: 0 },
+        { ...sourceCampaign.trackedLinks[1], position: 0 },
+        {
+          ...sourceCampaign.trackedLinks[1],
+          id: "link_3",
+          label: "Third",
+          destinationUrl: "https://example.com/third",
+          position: 0,
+        },
+      ],
+    });
+
+    await duplicateCampaign({
+      automationId: "automation_123",
+      workspaceId: "workspace_123",
+    });
+
+    const created = createArgs().data.trackedLinks.create;
+    expect(
+      created.map((link: { destinationUrl: string; position: number }) => [
+        link.destinationUrl,
+        link.position,
+      ])
+    ).toEqual([
+      ["https://example.com/product", 0],
+      ["https://example.com/guide", 1],
+      ["https://example.com/third", 2],
+    ]);
   });
 
   it("does not copy a campaign from another workspace", async () => {

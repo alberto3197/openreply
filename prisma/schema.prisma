@@ -87,6 +87,7 @@ model Workspace {
   webhookEvents     WebhookEvent[]
   operationalEvents OperationalEvent[]
   apiTokens         ApiToken[]
+  serviceKeys       ServiceKey[]
 
   @@index([ownerId])
 }
@@ -103,6 +104,21 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
+}
+
+model ServiceKey {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  tokenHash   String    @unique
+  scopes      String[]
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
 model WorkspaceInvitation {
@@ -287,8 +303,10 @@ model TrackedLink {
   slug           String   @unique
   label          String?
   destinationUrl String
-  // Button order in the DM: 0 is the primary link, 1 the second. Links created
-  // in one query share a `createdAt`, so the timestamp cannot order them.
+  // Which DM button this link is, starting at 0. Read links with
+  // TRACKED_LINK_ORDER (lib/tracking/link-order.ts), never by createdAt alone:
+  // links saved in one request share a createdAt, and Postgres returns tied
+  // rows in no fixed order. Unique per campaign (see @@unique below).
   position       Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -309,6 +327,9 @@ model LinkClick {
   instagramAccountId String
   trackedLinkId      String
   ipHash             String?
+  // Token from the link's `?r=` (hashRecipientId), set on links sent in a DM.
+  // Clicks are counted once per recipient, falling back to ipHash without it.
+  recipientHash      String?
   userAgent          String?
   referrer           String?
   createdAt          DateTime @default(now())

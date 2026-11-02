@@ -74,6 +74,8 @@ export const createCampaignSchema = createCampaignFieldsSchema
 export const updateCampaignSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   goal: z.string().min(1).max(120).optional().nullable(),
+  // Moves the campaign to another of the workspace's accounts.
+  instagramAccountId: z.string().min(1).optional(),
   postId: z.string().min(1).optional().nullable(),
   postUrl: z.string().url().optional().nullable(),
   pendingNextReel: z.boolean().optional(),

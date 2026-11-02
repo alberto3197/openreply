@@ -1,9 +1,14 @@
 import { prisma } from "@/lib/db/client";
+import type { Locale } from "@/lib/i18n";
 import {
   calculateCtr,
+  CLICK_ROW_SELECT,
+  countUniqueClicks,
+  countUniqueClicksBy,
   normalizeTopKeywords,
   summarizeDmStatuses,
 } from "@/lib/tracking/analytics";
+import { TRACKED_LINK_ORDER } from "@/lib/tracking/link-order";
 import { buildReportUrl, isReportBranded } from "@/lib/reports/share";
 
 function getHostname(url: string) {
@@ -25,7 +30,7 @@ function getDayWindow(daysAgo: number) {
   return { start, end };
 }
 
-export async function getCampaignReportBySlug(shareSlug: string) {
+export async function getCampaignReportBySlug(shareSlug: string, locale: Locale = "en") {
   const automation = await prisma.automation.findFirst({
     where: {
       reportShareSlug: shareSlug,
@@ -57,9 +62,8 @@ export async function getCampaignReportBySlug(shareSlug: string) {
           id: true,
           slug: true,
           destinationUrl: true,
-          _count: { select: { clicks: true } },
         },
-        orderBy: { position: "asc" },
+        orderBy: TRACKED_LINK_ORDER,
       },
     },
   });
@@ -68,7 +72,7 @@ export async function getCampaignReportBySlug(shareSlug: string) {
     return null;
   }
 
-  const [statusRows, clickCount, keywordRows, latestSentLog] =
+  const [statusRows, clickRows, keywordRows, latestSentLog] =
     await Promise.all([
       prisma.dmLog.groupBy({
         by: ["status"],
@@ -78,11 +82,12 @@ export async function getCampaignReportBySlug(shareSlug: string) {
         },
         _count: { _all: true },
       }),
-      prisma.linkClick.count({
+      prisma.linkClick.findMany({
         where: {
           workspaceId: automation.workspaceId,
           automationId: automation.id,
         },
+        select: { ...CLICK_ROW_SELECT, trackedLinkId: true, createdAt: true },
       }),
       prisma.dmLog.groupBy({
         by: ["matchedKeyword"],
@@ -116,30 +121,26 @@ export async function getCampaignReportBySlug(shareSlug: string) {
       _count: row._count._all,
     }))
   );
+  const clickCount = countUniqueClicks(clickRows);
+  const clicksByLink = countUniqueClicksBy(clickRows, (row) => row.trackedLinkId);
   const daily = await Promise.all(
     Array.from({ length: 7 }, async (_, index) => {
       const daysAgo = 6 - index;
       const { start, end } = getDayWindow(daysAgo);
-      const [sent, clicks] = await Promise.all([
-        prisma.dmLog.count({
-          where: {
-            workspaceId: automation.workspaceId,
-            automationId: automation.id,
-            status: "SENT",
-            createdAt: { gte: start, lt: end },
-          },
-        }),
-        prisma.linkClick.count({
-          where: {
-            workspaceId: automation.workspaceId,
-            automationId: automation.id,
-            createdAt: { gte: start, lt: end },
-          },
-        }),
-      ]);
+      const sent = await prisma.dmLog.count({
+        where: {
+          workspaceId: automation.workspaceId,
+          automationId: automation.id,
+          status: "SENT",
+          createdAt: { gte: start, lt: end },
+        },
+      });
+      const clicks = countUniqueClicks(
+        clickRows.filter((row) => row.createdAt >= start && row.createdAt < end)
+      );
 
       return {
-        date: start.toLocaleDateString("en-US", {
+        date: start.toLocaleDateString(locale, {
           month: "short",
           day: "numeric",
         }),
@@ -180,7 +181,7 @@ export async function getCampaignReportBySlug(shareSlug: string) {
     trackedLinks: automation.trackedLinks.map((link) => ({
       slug: link.slug,
       destinationHost: getHostname(link.destinationUrl),
-      clicks: link._count.clicks,
+      clicks: clicksByLink.get(link.id) ?? 0,
     })),
   };
 }

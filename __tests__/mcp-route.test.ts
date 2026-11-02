@@ -24,11 +24,12 @@ const { mockPrisma, mockWorkspaceContext, mockInstagram } = vi.hoisted(() => ({
       update: vi.fn(),
     },
     trackedLink: {
-      findFirst: vi.fn(),
+      findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
     },
+    $transaction: vi.fn(),
   },
   mockWorkspaceContext: vi.fn(),
   mockInstagram: {
@@ -408,7 +409,14 @@ describe("MCP write tools", () => {
       isActive: false,
       ...data,
     }));
-    mockPrisma.trackedLink.findFirst.mockResolvedValue(null);
+    mockPrisma.trackedLink.findMany.mockResolvedValue([]);
+    mockPrisma.trackedLink.create.mockImplementation(async ({ data }) => ({
+      id: `created_${data.position}`,
+      position: data.position,
+    }));
+    mockPrisma.$transaction.mockImplementation(
+      async (fn: (tx: typeof mockPrisma) => unknown) => fn(mockPrisma)
+    );
   });
 
   it("creates campaigns paused even when asked to activate them", async () => {
@@ -502,9 +510,9 @@ describe("MCP write tools", () => {
 
   it("updates fields and changes tracked links", async () => {
     allowToken("ADMIN");
-    mockPrisma.trackedLink.findFirst.mockImplementation(async ({ where }) =>
-      where.position === 0 ? { id: "link_0" } : null
-    );
+    mockPrisma.trackedLink.findMany.mockResolvedValue([
+      { id: "link_0", position: 0 },
+    ]);
 
     const result = await callTool("update_campaign", {
       id: "automation_1",
@@ -532,15 +540,17 @@ describe("MCP write tools", () => {
       where: { id: "link_0" },
       data: { destinationUrl: "https://example.com/new" },
     });
-    expect(mockPrisma.trackedLink.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        workspaceId: "workspace_1",
-        automationId: "automation_1",
-        label: "Guide",
-        destinationUrl: "https://example.com/second",
-        position: 1,
-      }),
-    });
+    expect(mockPrisma.trackedLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workspaceId: "workspace_1",
+          automationId: "automation_1",
+          label: "Guide",
+          destinationUrl: "https://example.com/second",
+          position: 1,
+        }),
+      })
+    );
   });
 
   it.each([true, false])("sets isActive to %s", async (active) => {

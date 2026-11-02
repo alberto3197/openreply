@@ -110,6 +110,8 @@ const updateCampaignInput = z
         publicReplyMessage: true,
         trackedDestinationUrl: true,
         secondaryDestinationUrl: true,
+        // Moving a campaign between accounts stays a dashboard-only action.
+        instagramAccountId: true,
       }).shape
     )
   )

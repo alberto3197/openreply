@@ -18,11 +18,12 @@ const { mockPrisma, mockWorkspaceContext } = vi.hoisted(() => ({
       findFirst: vi.fn(),
     },
     trackedLink: {
-      findFirst: vi.fn(),
+      findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
     },
+    $transaction: vi.fn(),
   },
   mockWorkspaceContext: vi.fn(),
 }));
@@ -386,6 +387,7 @@ describe("POST /api/automations", () => {
       })
     );
 
+    // Positions follow button order, so a lone second link is the first button.
     expect(mockPrisma.automation.create.mock.calls[0][0].data.trackedLinks).toEqual({
       create: [
         {
@@ -393,7 +395,7 @@ describe("POST /api/automations", () => {
           slug: "slug_1",
           label: "Open link",
           destinationUrl: "https://example.com/b",
-          position: 1,
+          position: 0,
         },
       ],
     });
@@ -555,7 +557,14 @@ describe("PATCH /api/automations", () => {
   beforeEach(() => {
     mockPrisma.automation.findFirst.mockResolvedValue(existing);
     mockPrisma.automation.update.mockResolvedValue(updated);
-    mockPrisma.trackedLink.findFirst.mockResolvedValue(null);
+    mockPrisma.trackedLink.findMany.mockResolvedValue([]);
+    mockPrisma.trackedLink.create.mockImplementation(async ({ data }) => ({
+      id: `created_${data.position}`,
+      position: data.position,
+    }));
+    mockPrisma.$transaction.mockImplementation(
+      async (fn: (tx: typeof mockPrisma) => unknown) => fn(mockPrisma)
+    );
   });
 
   function patch(body: unknown, id: string | null = "automation_1") {
@@ -648,13 +657,13 @@ describe("PATCH /api/automations", () => {
       where: { id: "automation_1" },
       data: { isActive: false },
     });
-    expect(mockPrisma.trackedLink.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.trackedLink.findMany).not.toHaveBeenCalled();
   });
 
   it("ignores fields the update schema does not know", async () => {
     signIn();
 
-    await patch({ name: "Renamed", instagramAccountId: "ig_2", id: "x" });
+    await patch({ name: "Renamed", workspaceId: "workspace_2", id: "x" });
 
     expect(mockPrisma.automation.update).toHaveBeenCalledWith({
       where: { id: "automation_1" },
@@ -748,100 +757,48 @@ describe("PATCH /api/automations", () => {
     });
   });
 
-  describe.each([
-    {
-      field: "trackedDestinationUrl",
-      position: 0,
-      createdLabel: "Primary campaign link",
-    },
-    {
-      field: "secondaryDestinationUrl",
-      position: 1,
-      createdLabel: "Open link",
-    },
-  ])("$field (position $position)", ({ field, position, createdLabel }) => {
-    const storedLink = {
-      id: `link_${position}`,
-      automationId: "automation_1",
-      position,
-      destinationUrl: "https://example.com/old",
-    };
+  // The link rules themselves are covered in campaign-links.test.ts; these pin
+  // how a campaign save drives them.
+  it.each([undefined, null])("leaves the links alone for %s", async (value) => {
+    signIn();
 
-    it.each([undefined, null])("leaves the link alone for %s", async (value) => {
-      signIn();
-
-      await patch({ name: "Renamed", [field]: value });
-
-      expect(mockPrisma.trackedLink.findFirst).not.toHaveBeenCalled();
-      expect(mockPrisma.trackedLink.create).not.toHaveBeenCalled();
-      expect(mockPrisma.trackedLink.update).not.toHaveBeenCalled();
-      expect(mockPrisma.trackedLink.delete).not.toHaveBeenCalled();
+    await patch({
+      name: "Renamed",
+      trackedDestinationUrl: value,
+      secondaryDestinationUrl: value,
     });
 
-    it("deletes the existing link for an empty string", async () => {
-      signIn();
-      mockPrisma.trackedLink.findFirst.mockResolvedValue(storedLink);
+    expect(mockPrisma.trackedLink.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.trackedLink.create).not.toHaveBeenCalled();
+    expect(mockPrisma.trackedLink.update).not.toHaveBeenCalled();
+    expect(mockPrisma.trackedLink.delete).not.toHaveBeenCalled();
+  });
 
-      await patch({ [field]: "" });
+  it("deletes the primary link and moves the second one up", async () => {
+    signIn();
+    mockPrisma.trackedLink.findMany.mockResolvedValue([
+      { id: "link_0", position: 0 },
+      { id: "link_1", position: 1 },
+    ]);
 
-      expect(mockPrisma.trackedLink.findFirst).toHaveBeenCalledWith({
-        where: { automationId: "automation_1", position },
-      });
-      expect(mockPrisma.trackedLink.delete).toHaveBeenCalledWith({
-        where: { id: storedLink.id },
-      });
-      expect(mockPrisma.trackedLink.create).not.toHaveBeenCalled();
-      expect(mockPrisma.trackedLink.update).not.toHaveBeenCalled();
+    await patch({ trackedDestinationUrl: "" });
+
+    expect(mockPrisma.trackedLink.delete).toHaveBeenCalledWith({
+      where: { id: "link_0" },
     });
-
-    it("does nothing for an empty string when there is no link", async () => {
-      signIn();
-
-      await patch({ [field]: "" });
-
-      expect(mockPrisma.trackedLink.findFirst).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.trackedLink.delete).not.toHaveBeenCalled();
-      expect(mockPrisma.trackedLink.create).not.toHaveBeenCalled();
+    expect(mockPrisma.trackedLink.update).toHaveBeenCalledWith({
+      where: { id: "link_1" },
+      data: { position: 0 },
     });
-
-    it("updates the existing link", async () => {
-      signIn();
-      mockPrisma.trackedLink.findFirst.mockResolvedValue(storedLink);
-
-      await patch({ [field]: "https://example.com/new" });
-
-      expect(mockPrisma.trackedLink.update).toHaveBeenCalledWith({
-        where: { id: storedLink.id },
-        data:
-          position === 0
-            ? { destinationUrl: "https://example.com/new" }
-            : { destinationUrl: "https://example.com/new", label: "Open link" },
-      });
-      expect(mockPrisma.trackedLink.create).not.toHaveBeenCalled();
-    });
-
-    it("creates the link when it is missing", async () => {
-      signIn();
-
-      await patch({ [field]: "https://example.com/new" });
-
-      expect(mockPrisma.trackedLink.create).toHaveBeenCalledWith({
-        data: {
-          workspaceId: "workspace_1",
-          automationId: "automation_1",
-          slug: "slug_1",
-          label: createdLabel,
-          destinationUrl: "https://example.com/new",
-          position,
-        },
-      });
-      expect(mockPrisma.trackedLink.update).not.toHaveBeenCalled();
-    });
+    expect(mockPrisma.trackedLink.create).not.toHaveBeenCalled();
   });
 
   it("uses the trimmed secondary button label", async () => {
     signIn();
-    mockPrisma.trackedLink.findFirst.mockResolvedValue({ id: "link_1" });
+    mockPrisma.trackedLink.findMany.mockResolvedValue([
+      { id: "link_0", position: 0 },
+      { id: "link_1", position: 1 },
+    ]);
 
     await patch({
       secondaryDestinationUrl: "https://example.com/b",
@@ -859,11 +816,11 @@ describe("PATCH /api/automations", () => {
 
     await patch({ secondaryButtonLabel: "Read guide" });
 
-    expect(mockPrisma.trackedLink.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.trackedLink.findMany).not.toHaveBeenCalled();
     expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({});
   });
 
-  it("writes the campaign first, then the primary and the second link", async () => {
+  it("writes the campaign first, then both links, in one transaction", async () => {
     signIn();
 
     await patch({
@@ -876,14 +833,31 @@ describe("PATCH /api/automations", () => {
       fn.mock.invocationCallOrder;
     const [findCampaign] = order(mockPrisma.automation.findFirst);
     const [updateCampaign] = order(mockPrisma.automation.update);
-    const [findPrimary, findSecondary] = order(mockPrisma.trackedLink.findFirst);
+    const [readLinks] = order(mockPrisma.trackedLink.findMany);
     const [createPrimary, createSecondary] = order(mockPrisma.trackedLink.create);
 
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     expect(findCampaign).toBeLessThan(updateCampaign);
-    expect(updateCampaign).toBeLessThan(findPrimary);
-    expect(findPrimary).toBeLessThan(createPrimary);
-    expect(createPrimary).toBeLessThan(findSecondary);
-    expect(findSecondary).toBeLessThan(createSecondary);
-    expect(mockPrisma.trackedLink.create.mock.calls.map(([arg]) => arg.data.position)).toEqual([0, 1]);
+    expect(updateCampaign).toBeLessThan(readLinks);
+    expect(readLinks).toBeLessThan(createPrimary);
+    expect(createPrimary).toBeLessThan(createSecondary);
+    expect(mockPrisma.trackedLink.create.mock.calls.map(([arg]) => arg.data)).toEqual([
+      {
+        workspaceId: "workspace_1",
+        automationId: "automation_1",
+        slug: "slug_1",
+        label: "Primary campaign link",
+        destinationUrl: "https://example.com/a",
+        position: 0,
+      },
+      {
+        workspaceId: "workspace_1",
+        automationId: "automation_1",
+        slug: "slug_2",
+        label: "Open link",
+        destinationUrl: "https://example.com/b",
+        position: 1,
+      },
+    ]);
   });
 });

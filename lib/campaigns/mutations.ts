@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db/client";
-import { generateTrackedLinkSlug } from "@/lib/tracking/server";
+import {
+  buildInitialCampaignLinks,
+  syncCampaignLinks,
+} from "@/lib/campaigns/links";
 import { generateReportShareSlug } from "@/lib/reports/share";
 import {
   createCampaignSchema,
@@ -77,36 +80,12 @@ export async function createCampaign({
     } satisfies CampaignMutationError;
   }
 
-  const { trackedDestinationUrl, secondaryDestinationUrl, secondaryButtonLabel } =
-    parsed.data;
-
-  // The primary link's button title comes from `linkButtonLabel`; the second
-  // link stores its own button title in the tracked link's `label` field.
-  const linkCreates: {
-    workspaceId: string;
-    slug: string;
-    label: string;
-    destinationUrl: string;
-    position: number;
-  }[] = [];
-  if (trackedDestinationUrl) {
-    linkCreates.push({
-      workspaceId,
-      slug: generateTrackedLinkSlug(),
-      label: "Primary campaign link",
-      destinationUrl: trackedDestinationUrl,
-      position: 0,
-    });
-  }
-  if (secondaryDestinationUrl) {
-    linkCreates.push({
-      workspaceId,
-      slug: generateTrackedLinkSlug(),
-      label: secondaryButtonLabel?.trim() || "Open link",
-      destinationUrl: secondaryDestinationUrl,
-      position: 1,
-    });
-  }
+  const linkCreates = buildInitialCampaignLinks({
+    workspaceId,
+    primaryUrl: parsed.data.trackedDestinationUrl,
+    secondaryUrl: parsed.data.secondaryDestinationUrl,
+    secondaryLabel: parsed.data.secondaryButtonLabel,
+  });
 
   const { pendingNextReel, matchAnyPost, matchAnyWord, openingDmEnabled } =
     parsed.data;
@@ -220,6 +199,24 @@ export async function updateCampaign({
     ...automationData
   } = parsed.data;
 
+  // Moving a campaign to another account: it must be one of this workspace's.
+  if (
+    automationData.instagramAccountId !== undefined &&
+    automationData.instagramAccountId !== existing.instagramAccountId
+  ) {
+    const account = await prisma.instagramAccount.findFirst({
+      where: { id: automationData.instagramAccountId, workspaceId },
+      select: { id: true },
+    });
+    if (!account) {
+      return {
+        ok: false,
+        status: 404,
+        error: "Instagram account not found",
+      } satisfies CampaignMutationError;
+    }
+  }
+
   // Keep dependent fields consistent: any-word clears keywords; a disabled
   // opening DM clears its message and button.
   if (automationData.matchAnyWord === true) automationData.keywords = [];
@@ -253,71 +250,25 @@ export async function updateCampaign({
     automationData.publicReplyMessage = null;
   }
 
-  const updated = await prisma.automation.update({
-    where: { id: automationId },
-    data: automationData,
+  // One transaction, so a save never lands half applied. Updating the campaign
+  // first locks its row, which makes a second save of the same campaign wait
+  // for this one before it reads the links.
+  const updated = await prisma.$transaction(async (tx) => {
+    const campaign = await tx.automation.update({
+      where: { id: automationId },
+      data: automationData,
+    });
+
+    await syncCampaignLinks(tx, {
+      workspaceId,
+      automationId,
+      primaryUrl: trackedDestinationUrl,
+      secondaryUrl: secondaryDestinationUrl,
+      secondaryLabel: secondaryButtonLabel,
+    });
+
+    return campaign;
   });
-
-  // Update, create, or clear the campaign's primary tracked link when a
-  // destination URL was supplied. `undefined` means "leave it alone".
-  if (trackedDestinationUrl !== undefined && trackedDestinationUrl !== null) {
-    const primaryLink = await prisma.trackedLink.findFirst({
-      where: { automationId, position: 0 },
-    });
-
-    if (trackedDestinationUrl === "") {
-      if (primaryLink) {
-        await prisma.trackedLink.delete({ where: { id: primaryLink.id } });
-      }
-    } else if (primaryLink) {
-      await prisma.trackedLink.update({
-        where: { id: primaryLink.id },
-        data: { destinationUrl: trackedDestinationUrl },
-      });
-    } else {
-      await prisma.trackedLink.create({
-        data: {
-          workspaceId,
-          automationId,
-          slug: generateTrackedLinkSlug(),
-          label: "Primary campaign link",
-          destinationUrl: trackedDestinationUrl,
-          position: 0,
-        },
-      });
-    }
-  }
-
-  // Update, create, or clear the campaign's second tracked link. It is always
-  // the link at position 1, and its `label` holds the second button's title.
-  if (secondaryDestinationUrl !== undefined && secondaryDestinationUrl !== null) {
-    const secondaryLink = await prisma.trackedLink.findFirst({
-      where: { automationId, position: 1 },
-    });
-    const secondaryLabel = secondaryButtonLabel?.trim() || "Open link";
-
-    if (secondaryDestinationUrl === "") {
-      if (secondaryLink) {
-        await prisma.trackedLink.delete({ where: { id: secondaryLink.id } });
-      }
-    } else if (secondaryLink) {
-      await prisma.trackedLink.update({
-        where: { id: secondaryLink.id },
-        data: { destinationUrl: secondaryDestinationUrl, label: secondaryLabel },
-      });
-    } else {
-      await prisma.trackedLink.create({
-        data: {
-          workspaceId,
-          automationId,
-          slug: generateTrackedLinkSlug(),
-          label: secondaryLabel,
-          destinationUrl: secondaryDestinationUrl,
-          position: 1,
-        },
-      });
-    }
-  }
 
   return { ok: true, data: updated } as const;
 }
