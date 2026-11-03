@@ -314,7 +314,34 @@ describe("DM Worker — comments left on an ad", () => {
         where: expect.objectContaining({
           OR: [
             { postId: "ad_media_999" },
+            { postIds: { has: "ad_media_999" } },
             { postId: "media_101" },
+            { postIds: { has: "media_101" } },
+            { matchAnyPost: true },
+          ],
+        }),
+      })
+    );
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+});
+
+describe("DM Worker — campaigns on several posts", () => {
+  it("fires a campaign whose post list holds the commented post", async () => {
+    const processor = getProcessor();
+    // The comment is on a secondary post: postId points at another one.
+    mockPrisma.automation.findMany.mockResolvedValueOnce([
+      { ...mockAutomation, postId: "media_100", postIds: ["media_100", "media_101"] },
+    ]);
+
+    await processor(createMockJob());
+
+    expect(mockPrisma.automation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { postId: "media_101" },
+            { postIds: { has: "media_101" } },
             { matchAnyPost: true },
           ],
         }),
@@ -332,7 +359,11 @@ describe("DM Worker — Full Pipeline", () => {
 
     expect(mockPrisma.automation.findMany).toHaveBeenCalledWith({
       where: {
-        OR: [{ postId: "media_101" }, { matchAnyPost: true }],
+        OR: [
+          { postId: "media_101" },
+          { postIds: { has: "media_101" } },
+          { matchAnyPost: true },
+        ],
         isActive: true,
         instagramAccount: { instagramId: "ig_456" },
       },

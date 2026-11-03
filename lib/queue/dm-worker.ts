@@ -303,9 +303,12 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       // A comment left on an ad carries the ad's own media id, while the
       // campaign is bound to the post the ad was created from, so both ids
       // have to be considered or the comment is dropped without a trace.
+      // A campaign may list several posts in postIds; postId still matches rows
+      // that predate that list.
       OR: [
-        { postId: mediaId },
-        ...(originalMediaId ? [{ postId: originalMediaId }] : []),
+        ...[mediaId, originalMediaId]
+          .filter((id): id is string => Boolean(id))
+          .flatMap((id) => [{ postId: id }, { postIds: { has: id } }]),
         { matchAnyPost: true },
       ],
       isActive: true,

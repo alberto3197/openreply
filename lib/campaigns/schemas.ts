@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_CAMPAIGN_POSTS } from "@/lib/campaigns/post-targets";
 
 // Input schemas for creating and editing campaigns, shared by the dashboard API
 // (app/api/automations) and the MCP write tools.
@@ -10,6 +11,8 @@ export const createCampaignFieldsSchema = z.object({
   goal: z.string().min(1).max(120).optional().nullable(),
   instagramAccountId: z.string().min(1).optional().nullable(),
   postId: z.string().min(1).optional().nullable(),
+  // Every post the campaign listens on; postId (if sent) is added as primary.
+  postIds: z.array(z.string().min(1)).max(MAX_CAMPAIGN_POSTS).optional(),
   postUrl: z.string().url().optional().nullable(),
   pendingNextReel: z.boolean().optional().default(false),
   matchAnyPost: z.boolean().optional().default(false),
@@ -54,7 +57,11 @@ export const createCampaignFieldsSchema = z.object({
 export const createCampaignSchema = createCampaignFieldsSchema
   // A campaign must target a specific post, any post, or the next reel.
   .refine(
-    (d) => d.matchAnyPost || d.pendingNextReel || Boolean(d.postId),
+    (d) =>
+      d.matchAnyPost ||
+      d.pendingNextReel ||
+      Boolean(d.postId) ||
+      Boolean(d.postIds?.length),
     { message: "Choose which post(s) trigger the campaign", path: ["postId"] }
   )
   // And it must match either specific words or any word.
@@ -77,6 +84,7 @@ export const updateCampaignSchema = z.object({
   // Moves the campaign to another of the workspace's accounts.
   instagramAccountId: z.string().min(1).optional(),
   postId: z.string().min(1).optional().nullable(),
+  postIds: z.array(z.string().min(1)).max(MAX_CAMPAIGN_POSTS).optional(),
   postUrl: z.string().url().optional().nullable(),
   pendingNextReel: z.boolean().optional(),
   matchAnyPost: z.boolean().optional(),

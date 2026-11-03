@@ -473,5 +473,8 @@
   "{name} Campaign Report": "{name} 活動報表",
   "{type} post": "{type} 貼文",
   "”": "」",
-  "← Campaigns": "← 返回活動列表"
+  "← Campaigns": "← 返回活動列表",
+  "Pick one or more. The campaign fires on any of them.": "可選擇一則或多則，任一則有留言都會觸發活動。",
+  "{count} selected": "已選擇 {count} 則",
+  "You can pick up to {max} posts.": "最多可選擇 {max} 則貼文。"
 }

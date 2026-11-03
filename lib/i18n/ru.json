@@ -473,5 +473,8 @@
   "{name} Campaign Report": "Отчёт по кампании «{name}»",
   "{type} post": "Пост {type}",
   "”": "»",
-  "← Campaigns": "← Кампании"
+  "← Campaigns": "← Кампании",
+  "Pick one or more. The campaign fires on any of them.": "Выберите одну или несколько. Кампания срабатывает на любой из них.",
+  "{count} selected": "Выбрано: {count}",
+  "You can pick up to {max} posts.": "Можно выбрать не более {max} публикаций."
 }

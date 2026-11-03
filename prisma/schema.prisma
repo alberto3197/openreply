@@ -200,8 +200,12 @@ model Automation {
 
   name           String
   goal           String?
+  // Primary post of a "specific post" campaign. Always postIds[0] when set;
+  // kept so the thumbnail, the report and older clients keep working.
   postId         String?
   postUrl        String?
+  // Every post a "specific post" campaign listens on (the primary first).
+  postIds        String[] @default([])
   pendingNextReel Boolean @default(false)
   matchAnyPost   Boolean @default(false)
   keywords       String[]
@@ -243,6 +247,7 @@ model Automation {
   @@index([workspaceId])
   @@index([instagramAccountId])
   @@index([postId])
+  @@index([postIds], type: Gin)
 }
 
 model DmLog {

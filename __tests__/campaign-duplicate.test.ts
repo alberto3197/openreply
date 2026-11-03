@@ -24,6 +24,7 @@ const sourceCampaign = {
   name: "Product Link Drop",
   goal: "Product link request",
   postId: "post_123",
+  postIds: ["post_123", "post_456"],
   postUrl: "https://instagram.com/p/example",
   pendingNextReel: false,
   matchAnyPost: false,

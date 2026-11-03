@@ -87,6 +87,7 @@ const minimalCreateData = {
   name: "Link drop",
   goal: undefined,
   postId: "post_1",
+  postIds: ["post_1"],
   postUrl: undefined,
   pendingNextReel: false,
   matchAnyPost: false,
@@ -499,6 +500,7 @@ describe("POST /api/automations", () => {
     const { data } = mockPrisma.automation.create.mock.calls[0][0];
     expect(data).toMatchObject({
       postId: null,
+      postIds: [],
       postUrl: null,
       matchAnyPost: true,
       matchAnyWord: true,
@@ -527,9 +529,70 @@ describe("POST /api/automations", () => {
 
     expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
       postId: null,
+      postIds: [],
       postUrl: null,
       pendingNextReel: true,
     });
+  });
+
+  it("stores every selected post, the first one as primary", async () => {
+    signIn();
+
+    await POST(
+      request("POST", {
+        ...minimalCreate,
+        postId: undefined,
+        postIds: ["post_1", "post_2", "post_1", "post_3"],
+      })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      postId: "post_1",
+      postIds: ["post_1", "post_2", "post_3"],
+    });
+  });
+
+  it("adds a separately sent postId to the list as primary", async () => {
+    signIn();
+
+    await POST(
+      request("POST", { ...minimalCreate, postId: "post_9", postIds: ["post_2"] })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      postId: "post_9",
+      postIds: ["post_9", "post_2"],
+    });
+  });
+
+  it("rejects an empty post list as the only trigger", async () => {
+    signIn();
+
+    const response = await POST(
+      request("POST", { ...minimalCreate, postId: undefined, postIds: [] })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(
+      invalidInput({ postId: ["Choose which post(s) trigger the campaign"] })
+    );
+  });
+
+  it("rejects more posts than the cap", async () => {
+    signIn();
+
+    const response = await POST(
+      request("POST", {
+        ...minimalCreate,
+        postIds: Array.from({ length: 31 }, (_, i) => `post_${i}`),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(Object.keys((await response.json()).details.fieldErrors)).toEqual([
+      "postIds",
+    ]);
+    expect(mockPrisma.automation.create).not.toHaveBeenCalled();
   });
 
   it("falls back to the legacy single public reply", async () => {
@@ -705,6 +768,7 @@ describe("PATCH /api/automations", () => {
         followUpDelayMinutes: 0,
         matchAnyPost: true,
         postId: null,
+        postIds: [],
         postUrl: null,
         publicReplyEnabled: false,
         publicReplyMessages: [],
@@ -722,7 +786,45 @@ describe("PATCH /api/automations", () => {
     expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
       pendingNextReel: true,
       postId: null,
+      postIds: [],
       postUrl: null,
+    });
+  });
+
+  it("replaces the post list and its primary", async () => {
+    signIn();
+
+    await patch({ postIds: ["post_2", "post_3"] });
+
+    expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+      postId: "post_2",
+      postIds: ["post_2", "post_3"],
+    });
+  });
+
+  it("turns a lone postId from an older client into a one-post list", async () => {
+    signIn();
+
+    await patch({ postId: "post_4" });
+    await patch({ postId: null });
+
+    expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+      postId: "post_4",
+      postIds: ["post_4"],
+    });
+    expect(mockPrisma.automation.update.mock.calls[1][0].data).toEqual({
+      postId: null,
+      postIds: [],
+    });
+  });
+
+  it("leaves the posts alone when neither field is sent", async () => {
+    signIn();
+
+    await patch({ name: "Renamed" });
+
+    expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+      name: "Renamed",
     });
   });
 

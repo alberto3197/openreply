@@ -29,6 +29,7 @@ import { MAX_COMMENT_SEND_ATTEMPTS } from "@/lib/queue/comment-delivery";
 import { hasLegacyUnconfirmedDelivery } from "@/lib/instagram/delivery-errors";
 import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
+import { campaignPostIds } from "@/lib/campaigns/post-targets";
 import {
   getRecentMediaComments,
   getUserMedia,
@@ -74,6 +75,7 @@ export async function reconcileComments(): Promise<void> {
       id: true,
       name: true,
       postId: true,
+      postIds: true,
       matchAnyPost: true,
       matchAnyWord: true,
       keywords: true,
@@ -125,6 +127,7 @@ async function sweepCampaign({
     id: string;
     name: string;
     postId: string | null;
+    postIds: string[];
     matchAnyPost: boolean;
     matchAnyWord: boolean;
     keywords: string[];
@@ -170,28 +173,34 @@ async function sweepCampaign({
     return stat;
   }
 
-  // Which media this campaign covers: its own post, or the recent feed if it
-  // matches any post.
-  const mediaIds: string[] = [];
-  if (automation.postId) {
-    mediaIds.push(automation.postId);
-    mediaIds.push(...(await adMediaFor(automation.postId)));
+  // Which media this campaign covers: its own posts and their ad copies, or the
+  // recent feed if it matches any post. An ad copy remembers the post it was
+  // made from, since that is the id the campaign is bound to.
+  const targets: { mediaId: string; originalMediaId?: string }[] = [];
+  const postIds = campaignPostIds(automation);
+  if (postIds.length > 0) {
+    for (const postId of postIds) {
+      targets.push({ mediaId: postId });
+      for (const adId of await adMediaFor(postId)) {
+        targets.push({ mediaId: adId, originalMediaId: postId });
+      }
+    }
   } else if (automation.matchAnyPost) {
     try {
       const media = await getUserMedia({
         context: accessToken,
         limit: RECENT_MEDIA_LIMIT,
       });
-      mediaIds.push(...media.map((m) => m.id));
+      targets.push(...media.map((m) => ({ mediaId: m.id })));
     } catch (error) {
       stat.errors.push(`Media list: ${errMessage(error)}`);
     }
   }
-  if (mediaIds.length === 0) return stat;
+  if (targets.length === 0) return stat;
 
   const queue = getDMQueue();
 
-  for (const mediaId of mediaIds) {
+  for (const { mediaId, originalMediaId } of targets) {
     let comments: InstagramComment[];
     try {
       comments = await getRecentMediaComments({
@@ -287,10 +296,7 @@ async function sweepCampaign({
         // the ad was made from: without this the worker matches nothing and
         // drops the comment, so the sweep would enqueue it again every five
         // minutes and never deliver it.
-        originalMediaId:
-          automation.postId && mediaId !== automation.postId
-            ? automation.postId
-            : undefined,
+        originalMediaId,
         source: "POLLING",
       });
       stat.enqueued += 1;

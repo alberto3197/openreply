@@ -4,6 +4,7 @@ import {
   syncCampaignLinks,
 } from "@/lib/campaigns/links";
 import { generateReportShareSlug } from "@/lib/reports/share";
+import { resolvePostTargets } from "@/lib/campaigns/post-targets";
 import {
   createCampaignSchema,
   updateCampaignSchema,
@@ -91,6 +92,9 @@ export async function createCampaign({
     parsed.data;
   // A post is only stored for the "specific post" trigger.
   const isSpecificPost = !pendingNextReel && !matchAnyPost;
+  const postTargets = isSpecificPost
+    ? resolvePostTargets(parsed.data)
+    : resolvePostTargets({});
   const publicReplyList = (
     parsed.data.publicReplyMessages.length > 0
       ? parsed.data.publicReplyMessages
@@ -106,7 +110,8 @@ export async function createCampaign({
       name: parsed.data.name,
       goal: parsed.data.goal,
       // A next-reel campaign has no post yet; the cron binds it once a reel is posted.
-      postId: isSpecificPost ? parsed.data.postId : null,
+      postId: postTargets.postId,
+      postIds: postTargets.postIds,
       postUrl: isSpecificPost ? parsed.data.postUrl : null,
       pendingNextReel,
       matchAnyPost,
@@ -232,9 +237,14 @@ export async function updateCampaign({
     automationData.followUpMessage = null;
     automationData.followUpDelayMinutes = 0;
   }
+  // Keep the post list and its primary in sync whenever either one is sent.
+  if (automationData.postId !== undefined || automationData.postIds !== undefined) {
+    Object.assign(automationData, resolvePostTargets(automationData));
+  }
   // Any-post / next-reel campaigns carry no specific post.
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {
     automationData.postId = null;
+    automationData.postIds = [];
     automationData.postUrl = null;
   }
   // Keep the public-reply variations list and the legacy single field in sync.

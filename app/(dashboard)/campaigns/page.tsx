@@ -18,6 +18,7 @@ interface Campaign {
   name: string;
   goal: string | null;
   postId: string | null;
+  postIds?: string[];
   postUrl: string | null;
   pendingNextReel: boolean;
   matchAnyPost: boolean;
@@ -423,6 +424,12 @@ export default function CampaignsPage() {
                   <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted">
                     @{auto.instagramAccount.username}
                   </span>
+                  {/* The thumbnail shows the primary post only. */}
+                  {(auto.postIds?.length ?? 0) > 1 && (
+                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted">
+                      {t("{count} posts", { count: auto.postIds!.length })}
+                    </span>
+                  )}
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       auto.isActive

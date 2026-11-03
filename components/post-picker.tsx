@@ -5,8 +5,8 @@
 /**
  * Post Picker
  *
- * Grid of Instagram post thumbnails, selectable.
- * Fetches from /api/instagram/posts.
+ * Grid of Instagram post thumbnails. Several can be selected; clicking a
+ * selected one deselects it. Fetches from /api/instagram/posts.
  */
 
 import { useI18n } from "@/lib/i18n/provider";
@@ -26,23 +26,25 @@ interface InstagramPost {
 }
 
 interface PostPickerProps {
-  selectedPostId: string | null;
+  /** Selected post IDs, in the order they were picked (the first is primary). */
+  selectedPostIds: string[];
   instagramAccountId?: string | null;
   /** postId -> name of the campaign already using it. Flagged in the grid. */
   usedPostIds?: Record<string, string>;
-  onSelect: (
-    postId: string,
-    postUrl?: string,
-    thumbUrl?: string,
-    caption?: string
-  ) => void;
+  /** Called with a clicked post; the parent adds or removes it. */
+  onToggle: (post: {
+    id: string;
+    url?: string;
+    thumbUrl?: string;
+    caption?: string;
+  }) => void;
 }
 
 export default function PostPicker({
-  selectedPostId,
+  selectedPostIds,
   instagramAccountId,
   usedPostIds,
-  onSelect,
+  onToggle,
 }: PostPickerProps) {
   const { t } = useI18n();
   const [limitations, setLimitations] = useState<string[]>([]);
@@ -173,7 +175,8 @@ export default function PostPicker({
               the square thumbnails flatten into strips. */}
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 auto-rows-min content-start overflow-y-auto p-1">
             {visible.map((post) => {
-              const isSelected = selectedPostId === post.id;
+              const selectedIndex = selectedPostIds.indexOf(post.id);
+              const isSelected = selectedIndex !== -1;
               const usedByName = usedPostIds?.[post.id];
               const isUsed = Boolean(usedByName) && !isSelected;
               const thumb = post.thumbnail_url ?? post.media_url;
@@ -184,7 +187,14 @@ export default function PostPicker({
           <button
             key={post.id}
             type="button"
-            onClick={() => onSelect(post.id, post.permalink, thumb, post.caption)}
+            onClick={() =>
+              onToggle({
+                id: post.id,
+                url: post.permalink,
+                thumbUrl: thumb,
+                caption: post.caption,
+              })
+            }
             onMouseEnter={() => setHoveredId(post.id)}
             onMouseLeave={() =>
               setHoveredId((cur) => (cur === post.id ? null : cur))
@@ -231,7 +241,9 @@ export default function PostPicker({
             )}
             {isSelected && (
               <span className="absolute bottom-0 inset-x-0 bg-accent text-white text-xs py-1">
-                {t("Selected")}
+                {selectedPostIds.length > 1
+                  ? `${selectedIndex + 1}. ${t("Selected")}`
+                  : t("Selected")}
               </span>
             )}
           </button>
