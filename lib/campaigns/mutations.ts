@@ -27,6 +27,32 @@ export type CampaignMutationError = {
   details?: CampaignInputErrors;
 };
 
+/**
+ * The next-reel reference an update should store, or undefined to leave it as
+ * it is. Only a change in the campaign's armed state writes it.
+ */
+function nextReelArmedAt({
+  existing,
+  isActive,
+  pendingNextReel,
+}: {
+  existing: {
+    isActive?: boolean;
+    pendingNextReel?: boolean;
+    nextReelArmedAt?: Date | null;
+  };
+  isActive?: boolean;
+  pendingNextReel?: boolean;
+}): Date | null | undefined {
+  const armed =
+    (isActive ?? existing.isActive ?? false) &&
+    (pendingNextReel ?? existing.pendingNextReel ?? false);
+  const wasArmed = Boolean(existing.nextReelArmedAt);
+  if (armed && !wasArmed) return new Date();
+  if (!armed && wasArmed) return null;
+  return undefined;
+}
+
 export async function createCampaign({
   workspaceId,
   input,
@@ -114,6 +140,8 @@ export async function createCampaign({
       postIds: postTargets.postIds,
       postUrl: isSpecificPost ? parsed.data.postUrl : null,
       pendingNextReel,
+      // A paused next-reel campaign is armed only once it is activated.
+      nextReelArmedAt: pendingNextReel && parsed.data.isActive ? new Date() : null,
       matchAnyPost,
       keywords: matchAnyWord ? [] : parsed.data.keywords,
       matchAnyWord,
@@ -246,6 +274,18 @@ export async function updateCampaign({
     automationData.postId = null;
     automationData.postIds = [];
     automationData.postUrl = null;
+  }
+  // A next-reel campaign waits for the first post published after it was
+  // switched on, so the reference is set when it becomes active (or becomes a
+  // next-reel campaign while active) and dropped while it is paused. Saving an
+  // already armed campaign keeps its reference.
+  const armedAt = nextReelArmedAt({
+    existing,
+    isActive: automationData.isActive,
+    pendingNextReel: automationData.pendingNextReel,
+  });
+  if (armedAt !== undefined) {
+    Object.assign(automationData, { nextReelArmedAt: armedAt });
   }
   // Keep the public-reply variations list and the legacy single field in sync.
   if (automationData.publicReplyMessages !== undefined) {

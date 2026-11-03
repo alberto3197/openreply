@@ -90,6 +90,7 @@ const minimalCreateData = {
   postIds: ["post_1"],
   postUrl: undefined,
   pendingNextReel: false,
+  nextReelArmedAt: null,
   matchAnyPost: false,
   keywords: ["LINK"],
   matchAnyWord: false,
@@ -535,6 +536,30 @@ describe("POST /api/automations", () => {
     });
   });
 
+  it("arms an active next-reel campaign from the moment it is created", async () => {
+    signIn();
+    const before = Date.now();
+
+    await POST(request("POST", { ...minimalCreate, pendingNextReel: true }));
+
+    const { nextReelArmedAt } = mockPrisma.automation.create.mock.calls[0][0].data;
+    expect(nextReelArmedAt).toBeInstanceOf(Date);
+    expect(nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("leaves a paused next-reel campaign unarmed", async () => {
+    signIn();
+
+    await POST(
+      request("POST", { ...minimalCreate, pendingNextReel: true, isActive: false })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      pendingNextReel: true,
+      nextReelArmedAt: null,
+    });
+  });
+
   it("stores every selected post, the first one as primary", async () => {
     signIn();
 
@@ -788,6 +813,85 @@ describe("PATCH /api/automations", () => {
       postId: null,
       postIds: [],
       postUrl: null,
+    });
+  });
+
+  describe("next-reel arming", () => {
+    const pausedPending = {
+      ...existing,
+      isActive: false,
+      pendingNextReel: true,
+      nextReelArmedAt: null,
+    };
+    const armed = {
+      ...existing,
+      isActive: true,
+      pendingNextReel: true,
+      nextReelArmedAt: new Date("2026-11-01T00:00:00.000Z"),
+    };
+
+    it("arms a paused next-reel campaign when it is activated", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(pausedPending);
+      const before = Date.now();
+
+      await patch({ isActive: true });
+
+      const { data } = mockPrisma.automation.update.mock.calls[0][0];
+      expect(data).toEqual({ isActive: true, nextReelArmedAt: expect.any(Date) });
+      expect(data.nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it("disarms a next-reel campaign when it is paused", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ isActive: false });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        isActive: false,
+        nextReelArmedAt: null,
+      });
+    });
+
+    it("keeps the reference when an armed campaign is saved again", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ name: "Renamed", isActive: true, pendingNextReel: true });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).not.toHaveProperty(
+        "nextReelArmedAt"
+      );
+    });
+
+    it("arms an active campaign switched to the next reel", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...existing,
+        isActive: true,
+        pendingNextReel: false,
+        nextReelArmedAt: null,
+      });
+
+      await patch({ pendingNextReel: true });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toMatchObject({
+        pendingNextReel: true,
+        nextReelArmedAt: expect.any(Date),
+      });
+    });
+
+    it("disarms a campaign moved off the next reel", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ pendingNextReel: false, postIds: ["post_1"] });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toMatchObject({
+        pendingNextReel: false,
+        nextReelArmedAt: null,
+      });
     });
   });
 

@@ -207,6 +207,10 @@ model Automation {
   // Every post a "specific post" campaign listens on (the primary first).
   postIds        String[] @default([])
   pendingNextReel Boolean @default(false)
+  // When a pending next-reel campaign was last activated: it binds to the first
+  // post published after this. Null while the campaign is paused, so posts
+  // published before it is switched on are never picked.
+  nextReelArmedAt DateTime?
   matchAnyPost   Boolean @default(false)
   keywords       String[]
   matchAnyWord   Boolean @default(false)

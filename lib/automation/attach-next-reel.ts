@@ -13,13 +13,15 @@ export type AttachNextReelResult = {
 };
 
 /**
- * Bind each pending "next post or reel" campaign to the earliest feed media
- * (reel, carousel or single image) published after it was created. Kept outside the HTTP route so the long-running worker can
- * run the same check on every comment-poll interval.
+ * Bind each active pending "next post or reel" campaign to the earliest feed
+ * media (reel, carousel or single image) published after it was switched on.
+ * A paused campaign is left pending, so it never takes a post published while
+ * it was off. Kept outside the HTTP route so the long-running worker can run
+ * the same check on every comment-poll interval.
  */
 export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
   const pending = await prisma.automation.findMany({
-    where: { pendingNextReel: true },
+    where: { pendingNextReel: true, isActive: true },
     include: { instagramAccount: true },
   });
 
@@ -64,9 +66,12 @@ export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
     }
 
     for (const automation of automations) {
-      // The "next" post = the earliest one posted after the campaign was created.
+      // The "next" post = the earliest one posted after the campaign was
+      // activated. A row armed before that reference existed falls back to its
+      // creation time, which is what this check used to compare against.
+      const armedAt = automation.nextReelArmedAt ?? automation.createdAt;
       const nextPost = posts.find(
-        (post) => new Date(post.timestamp) > automation.createdAt
+        (post) => new Date(post.timestamp) > armedAt
       );
       if (!nextPost) continue;
 
@@ -77,6 +82,7 @@ export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
           postIds: [nextPost.id],
           postUrl: nextPost.permalink ?? null,
           pendingNextReel: false,
+          nextReelArmedAt: null,
         },
       });
       bound += 1;
