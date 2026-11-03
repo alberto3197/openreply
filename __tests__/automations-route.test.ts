@@ -87,8 +87,10 @@ const minimalCreateData = {
   name: "Link drop",
   goal: undefined,
   postId: "post_1",
+  postIds: ["post_1"],
   postUrl: undefined,
   pendingNextReel: false,
+  nextReelArmedAt: null,
   matchAnyPost: false,
   keywords: ["LINK"],
   matchAnyWord: false,
@@ -499,6 +501,7 @@ describe("POST /api/automations", () => {
     const { data } = mockPrisma.automation.create.mock.calls[0][0];
     expect(data).toMatchObject({
       postId: null,
+      postIds: [],
       postUrl: null,
       matchAnyPost: true,
       matchAnyWord: true,
@@ -527,9 +530,94 @@ describe("POST /api/automations", () => {
 
     expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
       postId: null,
+      postIds: [],
       postUrl: null,
       pendingNextReel: true,
     });
+  });
+
+  it("arms an active next-reel campaign from the moment it is created", async () => {
+    signIn();
+    const before = Date.now();
+
+    await POST(request("POST", { ...minimalCreate, pendingNextReel: true }));
+
+    const { nextReelArmedAt } = mockPrisma.automation.create.mock.calls[0][0].data;
+    expect(nextReelArmedAt).toBeInstanceOf(Date);
+    expect(nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("leaves a paused next-reel campaign unarmed", async () => {
+    signIn();
+
+    await POST(
+      request("POST", { ...minimalCreate, pendingNextReel: true, isActive: false })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      pendingNextReel: true,
+      nextReelArmedAt: null,
+    });
+  });
+
+  it("stores every selected post, the first one as primary", async () => {
+    signIn();
+
+    await POST(
+      request("POST", {
+        ...minimalCreate,
+        postId: undefined,
+        postIds: ["post_1", "post_2", "post_1", "post_3"],
+      })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      postId: "post_1",
+      postIds: ["post_1", "post_2", "post_3"],
+    });
+  });
+
+  it("adds a separately sent postId to the list as primary", async () => {
+    signIn();
+
+    await POST(
+      request("POST", { ...minimalCreate, postId: "post_9", postIds: ["post_2"] })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      postId: "post_9",
+      postIds: ["post_9", "post_2"],
+    });
+  });
+
+  it("rejects an empty post list as the only trigger", async () => {
+    signIn();
+
+    const response = await POST(
+      request("POST", { ...minimalCreate, postId: undefined, postIds: [] })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual(
+      invalidInput({ postId: ["Choose which post(s) trigger the campaign"] })
+    );
+  });
+
+  it("rejects more posts than the cap", async () => {
+    signIn();
+
+    const response = await POST(
+      request("POST", {
+        ...minimalCreate,
+        postIds: Array.from({ length: 31 }, (_, i) => `post_${i}`),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(Object.keys((await response.json()).details.fieldErrors)).toEqual([
+      "postIds",
+    ]);
+    expect(mockPrisma.automation.create).not.toHaveBeenCalled();
   });
 
   it("falls back to the legacy single public reply", async () => {
@@ -705,6 +793,7 @@ describe("PATCH /api/automations", () => {
         followUpDelayMinutes: 0,
         matchAnyPost: true,
         postId: null,
+        postIds: [],
         postUrl: null,
         publicReplyEnabled: false,
         publicReplyMessages: [],
@@ -722,7 +811,124 @@ describe("PATCH /api/automations", () => {
     expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
       pendingNextReel: true,
       postId: null,
+      postIds: [],
       postUrl: null,
+    });
+  });
+
+  describe("next-reel arming", () => {
+    const pausedPending = {
+      ...existing,
+      isActive: false,
+      pendingNextReel: true,
+      nextReelArmedAt: null,
+    };
+    const armed = {
+      ...existing,
+      isActive: true,
+      pendingNextReel: true,
+      nextReelArmedAt: new Date("2026-11-01T00:00:00.000Z"),
+    };
+
+    it("arms a paused next-reel campaign when it is activated", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(pausedPending);
+      const before = Date.now();
+
+      await patch({ isActive: true });
+
+      const { data } = mockPrisma.automation.update.mock.calls[0][0];
+      expect(data).toEqual({ isActive: true, nextReelArmedAt: expect.any(Date) });
+      expect(data.nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it("disarms a next-reel campaign when it is paused", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ isActive: false });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        isActive: false,
+        nextReelArmedAt: null,
+      });
+    });
+
+    it("keeps the reference when an armed campaign is saved again", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ name: "Renamed", isActive: true, pendingNextReel: true });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).not.toHaveProperty(
+        "nextReelArmedAt"
+      );
+    });
+
+    it("arms an active campaign switched to the next reel", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...existing,
+        isActive: true,
+        pendingNextReel: false,
+        nextReelArmedAt: null,
+      });
+
+      await patch({ pendingNextReel: true });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toMatchObject({
+        pendingNextReel: true,
+        nextReelArmedAt: expect.any(Date),
+      });
+    });
+
+    it("disarms a campaign moved off the next reel", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ pendingNextReel: false, postIds: ["post_1"] });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toMatchObject({
+        pendingNextReel: false,
+        nextReelArmedAt: null,
+      });
+    });
+  });
+
+  it("replaces the post list and its primary", async () => {
+    signIn();
+
+    await patch({ postIds: ["post_2", "post_3"] });
+
+    expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+      postId: "post_2",
+      postIds: ["post_2", "post_3"],
+    });
+  });
+
+  it("turns a lone postId from an older client into a one-post list", async () => {
+    signIn();
+
+    await patch({ postId: "post_4" });
+    await patch({ postId: null });
+
+    expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+      postId: "post_4",
+      postIds: ["post_4"],
+    });
+    expect(mockPrisma.automation.update.mock.calls[1][0].data).toEqual({
+      postId: null,
+      postIds: [],
+    });
+  });
+
+  it("leaves the posts alone when neither field is sent", async () => {
+    signIn();
+
+    await patch({ name: "Renamed" });
+
+    expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+      name: "Renamed",
     });
   });
 

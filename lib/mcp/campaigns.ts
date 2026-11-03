@@ -35,6 +35,7 @@ export async function listCampaigns(
       isActive: true,
       createdAt: true,
       postId: true,
+      postIds: true,
       postUrl: true,
       matchAnyPost: true,
       pendingNextReel: true,
@@ -53,6 +54,7 @@ export async function listCampaigns(
     instagramAccount: campaign.instagramAccount,
     trigger: {
       postId: campaign.postId,
+      postIds: campaign.postIds,
       postUrl: campaign.postUrl,
       matchAnyPost: campaign.matchAnyPost,
       pendingNextReel: campaign.pendingNextReel,
@@ -73,6 +75,7 @@ export async function getCampaign(workspaceId: string, id: string) {
       goal: true,
       isActive: true,
       postId: true,
+      postIds: true,
       postUrl: true,
       pendingNextReel: true,
       matchAnyPost: true,

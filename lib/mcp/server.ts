@@ -41,9 +41,11 @@ const FIELD_DESCRIPTIONS: Record<string, string> = {
     "Connected Instagram account ID from list_instagram_accounts. Defaults to the most recently connected account",
   postId:
     "Instagram post ID from list_recent_posts. Required unless matchAnyPost or pendingNextReel is true",
+  postIds:
+    "Instagram post IDs from list_recent_posts when the campaign should fire on several posts (max 30). The first is the primary post; postId, if also sent, is added first. On update it replaces the whole list",
   postUrl: "Permalink of the post from list_recent_posts",
   pendingNextReel:
-    "Trigger on the next post the account publishes; it is bound automatically once posted",
+    "Trigger on the next post the account publishes after the campaign is activated; it is bound automatically once posted. Posts published while it is paused are ignored",
   matchAnyPost: "Trigger on comments under any post of the account",
   keywords:
     "Comment keywords that trigger the DM (max 10). Required unless matchAnyWord is true",

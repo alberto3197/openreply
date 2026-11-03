@@ -24,8 +24,10 @@ const sourceCampaign = {
   name: "Product Link Drop",
   goal: "Product link request",
   postId: "post_123",
+  postIds: ["post_123", "post_456"],
   postUrl: "https://instagram.com/p/example",
-  pendingNextReel: false,
+  pendingNextReel: true,
+  nextReelArmedAt: new Date("2026-05-03T00:00:00.000Z"),
   matchAnyPost: false,
   keywords: ["LINK", "SHOP"],
   matchAnyWord: false,
@@ -76,6 +78,7 @@ const NOT_COPIED = new Set([
   "id",
   "name",
   "isActive",
+  "nextReelArmedAt",
   "reportShareSlug",
   "createdAt",
   "updatedAt",
@@ -144,6 +147,18 @@ describe("duplicateCampaign", () => {
     // The copy is a new row, so the id and timestamps are left to the database.
     expect(createArgs().data.id).toBeUndefined();
     expect(createArgs().data.createdAt).toBeUndefined();
+  });
+
+  it("leaves a next-reel copy unarmed until it is activated", async () => {
+    await duplicateCampaign({
+      automationId: "automation_123",
+      workspaceId: "workspace_123",
+    });
+
+    expect(createArgs().data).toMatchObject({
+      pendingNextReel: true,
+      nextReelArmedAt: null,
+    });
   });
 
   it("keeps the copied name within the 100 character limit", () => {

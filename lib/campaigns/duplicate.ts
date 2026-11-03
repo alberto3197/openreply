@@ -30,7 +30,8 @@ export function buildDuplicateName(name: string): string {
  * anyone having to remember this function.
  *
  * Four things are deliberately not carried over: the copy starts paused so it
- * cannot fire before it has been reviewed, it gets its own report share slug,
+ * cannot fire before it has been reviewed (and, being paused, a next-reel copy
+ * is not waiting for a post yet), it gets its own report share slug,
  * its tracked links get fresh slugs so click stats stay separate from the
  * original's, and the name gains a "copy" suffix.
  */
@@ -64,6 +65,8 @@ export async function duplicateCampaign({
       updatedAt: undefined,
       name: buildDuplicateName(settings.name),
       isActive: false,
+      // A paused copy is not waiting for a post yet; activating it arms it.
+      nextReelArmedAt: null,
       reportShareSlug: generateReportShareSlug(),
       trackedLinks: {
         // Numbered from the order just read, so the copy's buttons match

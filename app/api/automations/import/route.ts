@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
 import { generateReportShareSlug } from "@/lib/reports/share";
+import { campaignPostIds } from "@/lib/campaigns/post-targets";
 import { generateTrackedLinkSlug } from "@/lib/tracking/server";
 import {
   canManageWorkspace,
@@ -64,9 +65,9 @@ export async function POST(request: NextRequest) {
 
   const existing = await prisma.automation.findMany({
     where: { instagramAccountId: account.id },
-    select: { postId: true },
+    select: { postId: true, postIds: true },
   });
-  const usedPostIds = new Set(existing.map((a) => a.postId));
+  const usedPostIds = new Set(existing.flatMap(campaignPostIds));
 
   const created: { name: string; postId: string }[] = [];
   const skipped: { row: number; reason: string }[] = [];
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
         name,
         goal: (campaign.goal ?? "").trim().slice(0, 120) || null,
         postId: campaign.postId,
+        postIds: [campaign.postId],
         postUrl: campaign.postUrl ?? null,
         keywords: campaign.keywords,
         dmMessage: campaign.dmMessage.slice(0, 1000),

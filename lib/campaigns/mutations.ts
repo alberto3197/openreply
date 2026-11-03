@@ -4,6 +4,7 @@ import {
   syncCampaignLinks,
 } from "@/lib/campaigns/links";
 import { generateReportShareSlug } from "@/lib/reports/share";
+import { resolvePostTargets } from "@/lib/campaigns/post-targets";
 import {
   createCampaignSchema,
   updateCampaignSchema,
@@ -25,6 +26,32 @@ export type CampaignMutationError = {
   error: string;
   details?: CampaignInputErrors;
 };
+
+/**
+ * The next-reel reference an update should store, or undefined to leave it as
+ * it is. Only a change in the campaign's armed state writes it.
+ */
+function nextReelArmedAt({
+  existing,
+  isActive,
+  pendingNextReel,
+}: {
+  existing: {
+    isActive?: boolean;
+    pendingNextReel?: boolean;
+    nextReelArmedAt?: Date | null;
+  };
+  isActive?: boolean;
+  pendingNextReel?: boolean;
+}): Date | null | undefined {
+  const armed =
+    (isActive ?? existing.isActive ?? false) &&
+    (pendingNextReel ?? existing.pendingNextReel ?? false);
+  const wasArmed = Boolean(existing.nextReelArmedAt);
+  if (armed && !wasArmed) return new Date();
+  if (!armed && wasArmed) return null;
+  return undefined;
+}
 
 export async function createCampaign({
   workspaceId,
@@ -91,6 +118,9 @@ export async function createCampaign({
     parsed.data;
   // A post is only stored for the "specific post" trigger.
   const isSpecificPost = !pendingNextReel && !matchAnyPost;
+  const postTargets = isSpecificPost
+    ? resolvePostTargets(parsed.data)
+    : resolvePostTargets({});
   const publicReplyList = (
     parsed.data.publicReplyMessages.length > 0
       ? parsed.data.publicReplyMessages
@@ -106,9 +136,12 @@ export async function createCampaign({
       name: parsed.data.name,
       goal: parsed.data.goal,
       // A next-reel campaign has no post yet; the cron binds it once a reel is posted.
-      postId: isSpecificPost ? parsed.data.postId : null,
+      postId: postTargets.postId,
+      postIds: postTargets.postIds,
       postUrl: isSpecificPost ? parsed.data.postUrl : null,
       pendingNextReel,
+      // A paused next-reel campaign is armed only once it is activated.
+      nextReelArmedAt: pendingNextReel && parsed.data.isActive ? new Date() : null,
       matchAnyPost,
       keywords: matchAnyWord ? [] : parsed.data.keywords,
       matchAnyWord,
@@ -232,10 +265,27 @@ export async function updateCampaign({
     automationData.followUpMessage = null;
     automationData.followUpDelayMinutes = 0;
   }
+  // Keep the post list and its primary in sync whenever either one is sent.
+  if (automationData.postId !== undefined || automationData.postIds !== undefined) {
+    Object.assign(automationData, resolvePostTargets(automationData));
+  }
   // Any-post / next-reel campaigns carry no specific post.
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {
     automationData.postId = null;
+    automationData.postIds = [];
     automationData.postUrl = null;
+  }
+  // A next-reel campaign waits for the first post published after it was
+  // switched on, so the reference is set when it becomes active (or becomes a
+  // next-reel campaign while active) and dropped while it is paused. Saving an
+  // already armed campaign keeps its reference.
+  const armedAt = nextReelArmedAt({
+    existing,
+    isActive: automationData.isActive,
+    pendingNextReel: automationData.pendingNextReel,
+  });
+  if (armedAt !== undefined) {
+    Object.assign(automationData, { nextReelArmedAt: armedAt });
   }
   // Keep the public-reply variations list and the legacy single field in sync.
   if (automationData.publicReplyMessages !== undefined) {

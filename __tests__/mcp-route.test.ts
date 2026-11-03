@@ -450,6 +450,22 @@ describe("MCP write tools", () => {
     });
   });
 
+  it("creates a campaign on several posts", async () => {
+    allowToken();
+
+    const result = await callTool("create_campaign", {
+      ...validCreate,
+      postId: undefined,
+      postIds: ["media_1", "media_2"],
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(mockPrisma.automation.create.mock.calls[0][0].data).toMatchObject({
+      postId: "media_1",
+      postIds: ["media_1", "media_2"],
+    });
+  });
+
   it("returns the create rules as a readable tool error", async () => {
     allowToken();
 

@@ -473,5 +473,8 @@
   "{name} Campaign Report": "Relatório da campanha {name}",
   "{type} post": "Publicação {type}",
   "”": "”",
-  "← Campaigns": "← Campanhas"
+  "← Campaigns": "← Campanhas",
+  "Pick one or more. The campaign fires on any of them.": "Escolha um ou mais. A campanha dispara em qualquer um deles.",
+  "{count} selected": "{count} selecionados",
+  "You can pick up to {max} posts.": "Você pode escolher até {max} posts."
 }

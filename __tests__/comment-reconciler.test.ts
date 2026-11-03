@@ -136,3 +136,68 @@ describe("comment polling does not recreate unsafe sends", () => {
     },
   );
 });
+
+describe("comment polling on a campaign with several posts", () => {
+  const SECOND_POST = "18023946917554991";
+  const SECOND_AD = "17899788633163101";
+
+  beforeEach(() => {
+    queueAdd.mockReset();
+    readComments.mockReset();
+    mockPrisma.operationalEvent.create.mockResolvedValue({});
+    mockPrisma.dmLog.findMany.mockResolvedValue([]);
+    // Only the second post was boosted.
+    mockPrisma.$queryRaw.mockImplementation(
+      async (_sql: TemplateStringsArray, postId: string) =>
+        postId === SECOND_POST ? [{ mediaId: SECOND_AD }] : []
+    );
+    mockPrisma.automation.findMany.mockResolvedValue([
+      {
+        id: "campaign",
+        name: "Campaign",
+        workspaceId: "workspace",
+        postId: POST,
+        postIds: [POST, SECOND_POST],
+        matchAnyWord: false,
+        keywords: ["AI"],
+        publicReplyEnabled: false,
+        instagramAccount: {
+          id: "connection",
+          instagramId: "owner",
+          provider: "META",
+          accessToken: "test",
+        },
+      },
+    ]);
+    readComments.mockImplementation(async ({ mediaId }: { mediaId: string }) => [
+      {
+        id: `comment_on_${mediaId}`,
+        text: "AI",
+        from: { id: "reader" },
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  });
+
+  it("sweeps every post and the ad copies of each one", async () => {
+    await reconcileComments();
+
+    expect(readComments.mock.calls.map(([args]) => args.mediaId)).toEqual([
+      POST,
+      SECOND_POST,
+      SECOND_AD,
+    ]);
+  });
+
+  it("binds a comment on an ad copy to the post it was made from", async () => {
+    await reconcileComments();
+
+    expect(
+      queueAdd.mock.calls.map(([, data]) => [data.mediaId, data.originalMediaId])
+    ).toEqual([
+      [POST, undefined],
+      [SECOND_POST, undefined],
+      [SECOND_AD, SECOND_POST],
+    ]);
+  });
+});
