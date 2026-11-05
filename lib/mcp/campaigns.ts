@@ -39,6 +39,7 @@ export async function listCampaigns(
       postUrl: true,
       matchAnyPost: true,
       pendingNextReel: true,
+      nextReelArmedAt: true,
       keywords: true,
       matchAnyWord: true,
       dmTriggerEnabled: true,
@@ -58,6 +59,8 @@ export async function listCampaigns(
       postUrl: campaign.postUrl,
       matchAnyPost: campaign.matchAnyPost,
       pendingNextReel: campaign.pendingNextReel,
+      // Only a post published after this moment can bind a next-reel campaign.
+      nextReelFrom: campaign.nextReelArmedAt,
       keywords: campaign.keywords,
       matchAnyWord: campaign.matchAnyWord,
       dmTriggerEnabled: campaign.dmTriggerEnabled,
@@ -78,6 +81,7 @@ export async function getCampaign(workspaceId: string, id: string) {
       postIds: true,
       postUrl: true,
       pendingNextReel: true,
+      nextReelArmedAt: true,
       matchAnyPost: true,
       keywords: true,
       matchAnyWord: true,
@@ -113,9 +117,11 @@ export async function getCampaign(workspaceId: string, id: string) {
   });
   if (!campaign) return null;
 
+  const { nextReelArmedAt, ...rest } = campaign;
   return {
-    ...campaign,
-    trackedLinks: campaign.trackedLinks.map(({ slug, ...link }) => ({
+    ...rest,
+    nextReelFrom: nextReelArmedAt,
+    trackedLinks: rest.trackedLinks.map(({ slug, ...link }) => ({
       ...link,
       trackedUrl: buildTrackedUrl(slug),
     })),

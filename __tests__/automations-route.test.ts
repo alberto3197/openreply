@@ -560,6 +560,77 @@ describe("POST /api/automations", () => {
     });
   });
 
+  it("arms a next-reel campaign from a requested future time", async () => {
+    signIn();
+    const from = new Date(Date.now() + 60 * 60 * 1000);
+
+    await POST(
+      request("POST", {
+        ...minimalCreate,
+        pendingNextReel: true,
+        nextReelFrom: from.toISOString(),
+      })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data.nextReelArmedAt).toEqual(from);
+  });
+
+  it("keeps a requested future time on a paused next-reel campaign", async () => {
+    signIn();
+    const from = new Date(Date.now() + 60 * 60 * 1000);
+
+    await POST(
+      request("POST", {
+        ...minimalCreate,
+        pendingNextReel: true,
+        isActive: false,
+        nextReelFrom: from.toISOString(),
+      })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data.nextReelArmedAt).toEqual(from);
+  });
+
+  it("arms from now when the requested time has already passed", async () => {
+    signIn();
+    const before = Date.now();
+
+    await POST(
+      request("POST", {
+        ...minimalCreate,
+        pendingNextReel: true,
+        nextReelFrom: "2026-01-01T00:00:00.000Z",
+      })
+    );
+
+    const { nextReelArmedAt } = mockPrisma.automation.create.mock.calls[0][0].data;
+    expect(nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("ignores a requested time on campaigns that are not next-reel", async () => {
+    signIn();
+
+    await POST(
+      request("POST", {
+        ...minimalCreate,
+        nextReelFrom: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
+    );
+
+    expect(mockPrisma.automation.create.mock.calls[0][0].data.nextReelArmedAt).toBeNull();
+  });
+
+  it("rejects a requested time that is not an ISO date-time", async () => {
+    signIn();
+
+    const res = await POST(
+      request("POST", { ...minimalCreate, pendingNextReel: true, nextReelFrom: "tomorrow" })
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockPrisma.automation.create).not.toHaveBeenCalled();
+  });
+
   it("stores every selected post, the first one as primary", async () => {
     signIn();
 
@@ -879,6 +950,102 @@ describe("PATCH /api/automations", () => {
       expect(mockPrisma.automation.update.mock.calls[0][0].data).toMatchObject({
         pendingNextReel: true,
         nextReelArmedAt: expect.any(Date),
+      });
+    });
+
+    const inAnHour = () => new Date(Date.now() + 60 * 60 * 1000);
+
+    it("moves an armed campaign's reference to a requested future time", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+      const from = inAnHour();
+
+      await patch({ nextReelFrom: from.toISOString() });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        nextReelArmedAt: from,
+      });
+    });
+
+    it("keeps a scheduled time when the campaign is paused", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...armed,
+        nextReelArmedAt: inAnHour(),
+      });
+
+      await patch({ isActive: false });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        isActive: false,
+      });
+    });
+
+    it("keeps a scheduled time when a paused campaign is activated", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...pausedPending,
+        nextReelArmedAt: inAnHour(),
+      });
+
+      await patch({ isActive: true });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        isActive: true,
+      });
+    });
+
+    it("arms from now when the scheduled time passed while it was paused", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...pausedPending,
+        nextReelArmedAt: new Date("2026-11-01T00:00:00.000Z"),
+      });
+      const before = Date.now();
+
+      await patch({ isActive: true });
+
+      const { data } = mockPrisma.automation.update.mock.calls[0][0];
+      expect(data.nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it("arms from now when a scheduled time is cleared on an active campaign", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...armed,
+        nextReelArmedAt: inAnHour(),
+      });
+      const before = Date.now();
+
+      await patch({ nextReelFrom: null });
+
+      const { data } = mockPrisma.automation.update.mock.calls[0][0];
+      expect(data.nextReelArmedAt.getTime()).toBeGreaterThanOrEqual(before);
+      expect(data.nextReelArmedAt.getTime()).toBeLessThanOrEqual(Date.now());
+    });
+
+    it("drops a scheduled time cleared on a paused campaign", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue({
+        ...pausedPending,
+        nextReelArmedAt: inAnHour(),
+      });
+
+      await patch({ nextReelFrom: null });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        nextReelArmedAt: null,
+      });
+    });
+
+    it("keeps an armed reference when an empty time is saved again", async () => {
+      signIn();
+      mockPrisma.automation.findFirst.mockResolvedValue(armed);
+
+      await patch({ name: "Renamed", nextReelFrom: null });
+
+      expect(mockPrisma.automation.update.mock.calls[0][0].data).toEqual({
+        name: "Renamed",
       });
     });
 

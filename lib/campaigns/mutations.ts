@@ -27,14 +27,44 @@ export type CampaignMutationError = {
   details?: CampaignInputErrors;
 };
 
+/** The requested "next reel from" time, when it is still ahead of `now`. */
+function futureTime(value: string | null | undefined, now: Date): Date | null {
+  if (!value) return null;
+  const time = new Date(value);
+  return time.getTime() > now.getTime() ? time : null;
+}
+
+/**
+ * The next-reel reference a new campaign starts with: a requested future time,
+ * otherwise the moment it is created if it starts active.
+ */
+function initialNextReelArmedAt({
+  pendingNextReel,
+  isActive,
+  requested,
+}: {
+  pendingNextReel: boolean;
+  isActive: boolean;
+  requested: string | null | undefined;
+}): Date | null {
+  if (!pendingNextReel) return null;
+  const now = new Date();
+  return futureTime(requested, now) ?? (isActive ? now : null);
+}
+
 /**
  * The next-reel reference an update should store, or undefined to leave it as
- * it is. Only a change in the campaign's armed state writes it.
+ * it is. A campaign binds to the first post published after the reference.
+ * Activating sets it to now, pausing drops it, and saving an armed campaign
+ * keeps it. A requested future time replaces it and survives pausing and
+ * activating, so a campaign can be armed ahead of a scheduled reel; sending an
+ * empty or past time drops that schedule again.
  */
 function nextReelArmedAt({
   existing,
   isActive,
   pendingNextReel,
+  requested,
 }: {
   existing: {
     isActive?: boolean;
@@ -43,14 +73,31 @@ function nextReelArmedAt({
   };
   isActive?: boolean;
   pendingNextReel?: boolean;
+  requested: string | null | undefined;
 }): Date | null | undefined {
-  const armed =
-    (isActive ?? existing.isActive ?? false) &&
-    (pendingNextReel ?? existing.pendingNextReel ?? false);
-  const wasArmed = Boolean(existing.nextReelArmedAt);
-  if (armed && !wasArmed) return new Date();
-  if (!armed && wasArmed) return null;
-  return undefined;
+  const now = new Date();
+  const pending = pendingNextReel ?? existing.pendingNextReel ?? false;
+  const active = isActive ?? existing.isActive ?? false;
+  const stored = existing.nextReelArmedAt ?? null;
+
+  if (!pending) return stored ? null : undefined;
+
+  const requestedTime = futureTime(requested, now);
+  if (requestedTime) return requestedTime;
+
+  const scheduled = Boolean(stored && stored.getTime() > now.getTime());
+  const clearsSchedule = requested !== undefined && scheduled;
+
+  if (active) {
+    // A time that passed while the campaign was paused must not let it take a
+    // post published during the pause, so activation re-arms from now.
+    const activating = !(existing.isActive ?? false);
+    return !stored || clearsSchedule || (activating && !scheduled)
+      ? now
+      : undefined;
+  }
+  if (scheduled && !clearsSchedule) return undefined;
+  return stored ? null : undefined;
 }
 
 export async function createCampaign({
@@ -140,8 +187,13 @@ export async function createCampaign({
       postIds: postTargets.postIds,
       postUrl: isSpecificPost ? parsed.data.postUrl : null,
       pendingNextReel,
-      // A paused next-reel campaign is armed only once it is activated.
-      nextReelArmedAt: pendingNextReel && parsed.data.isActive ? new Date() : null,
+      // A paused next-reel campaign is armed only once it is activated, unless
+      // it was given a future time to bind from.
+      nextReelArmedAt: initialNextReelArmedAt({
+        pendingNextReel,
+        isActive: parsed.data.isActive,
+        requested: parsed.data.nextReelFrom,
+      }),
       matchAnyPost,
       keywords: matchAnyWord ? [] : parsed.data.keywords,
       matchAnyWord,
@@ -229,6 +281,7 @@ export async function updateCampaign({
     trackedDestinationUrl,
     secondaryDestinationUrl,
     secondaryButtonLabel,
+    nextReelFrom,
     ...automationData
   } = parsed.data;
 
@@ -275,14 +328,13 @@ export async function updateCampaign({
     automationData.postIds = [];
     automationData.postUrl = null;
   }
-  // A next-reel campaign waits for the first post published after it was
-  // switched on, so the reference is set when it becomes active (or becomes a
-  // next-reel campaign while active) and dropped while it is paused. Saving an
-  // already armed campaign keeps its reference.
+  // A next-reel campaign waits for the first post published after its
+  // reference: the moment it was switched on, or a requested future time.
   const armedAt = nextReelArmedAt({
     existing,
     isActive: automationData.isActive,
     pendingNextReel: automationData.pendingNextReel,
+    requested: nextReelFrom,
   });
   if (armedAt !== undefined) {
     Object.assign(automationData, { nextReelArmedAt: armedAt });

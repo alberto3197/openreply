@@ -13,6 +13,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
+import {
+  formatNextReelFrom,
+  scheduledNextReelFrom,
+} from "@/lib/campaigns/next-reel-from";
 
 interface Campaign {
   id: string;
@@ -20,6 +24,7 @@ interface Campaign {
   postId: string | null;
   postUrl: string | null;
   pendingNextReel: boolean;
+  nextReelArmedAt?: string | null;
   matchAnyPost: boolean;
   keywords: string[];
   matchAnyWord: boolean;
@@ -153,10 +158,15 @@ export default function CampaignDetailPage() {
   const hasLink = Boolean(campaign.trackedLinks?.[0]?.destinationUrl);
   const hasSecondLink = Boolean(campaign.trackedLinks?.[1]?.destinationUrl);
 
+  const scheduledFrom = scheduledNextReelFrom(campaign.nextReelArmedAt);
   const trigger = campaign.matchAnyPost
     ? t("Any post or reel")
     : campaign.pendingNextReel
-      ? t("Your next post or reel")
+      ? scheduledFrom
+        ? t("Your next post or reel published after {time}", {
+            time: formatNextReelFrom(scheduledFrom),
+          })
+        : t("Your next post or reel")
       : t("A specific post or reel");
   const matchText = campaign.matchAnyWord
     ? t("Any comment")

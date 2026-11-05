@@ -12,6 +12,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import { readCache, writeCache } from "@/lib/client-cache";
+import {
+  formatNextReelFrom,
+  scheduledNextReelFrom,
+} from "@/lib/campaigns/next-reel-from";
 
 interface Campaign {
   id: string;
@@ -21,6 +25,7 @@ interface Campaign {
   postIds?: string[];
   postUrl: string | null;
   pendingNextReel: boolean;
+  nextReelArmedAt?: string | null;
   matchAnyPost: boolean;
   keywords: string[];
   matchAnyWord: boolean;
@@ -66,6 +71,14 @@ interface Campaign {
 
 export default function CampaignsPage() {
   const { t, label } = useI18n();
+
+  // A next-post campaign with a future "bind from" time shows that time.
+  function nextReelBadge(armedAt: string | null | undefined) {
+    const scheduled = scheduledNextReelFrom(armedAt);
+    return scheduled
+      ? t("Waiting for a post after {time}", { time: formatNextReelFrom(scheduled) })
+      : t("Waiting for next post");
+  }
   const router = useRouter();
   const [automations, setAutomations] = useState<Campaign[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
@@ -441,7 +454,7 @@ export default function CampaignsPage() {
                   </span>
                   {auto.pendingNextReel && (
                     <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-warning">
-                      {t("Waiting for next post")}
+                      {nextReelBadge(auto.nextReelArmedAt)}
                     </span>
                   )}
                   {auto.requireFollow && (
