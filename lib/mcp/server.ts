@@ -46,6 +46,8 @@ const FIELD_DESCRIPTIONS: Record<string, string> = {
   postUrl: "Permalink of the post from list_recent_posts",
   pendingNextReel:
     "Trigger on the next post the account publishes after the campaign is activated; it is bound automatically once posted. Posts published while it is paused are ignored",
+  nextReelFrom:
+    "For pendingNextReel campaigns: ISO 8601 date-time with timezone offset (e.g. 2026-11-05T17:55:00+01:00). Only a post published after this moment can be bound, so set it a few minutes before a scheduled reel and activate the campaign right away; earlier posts are skipped. Kept while the campaign is paused. null clears it (the campaign then binds from the moment it is active). A past time counts as now",
   matchAnyPost: "Trigger on comments under any post of the account",
   keywords:
     "Comment keywords that trigger the DM (max 10). Required unless matchAnyWord is true",
@@ -314,7 +316,7 @@ export function createMcpServer(auth: ApiTokenAuth) {
     {
       title: "Create campaign",
       description:
-        "Create a comment-to-DM campaign. It is always created paused and sends nothing until it is activated with set_campaign_active. Target a specific post (postId from list_recent_posts), any post (matchAnyPost) or the next post (pendingNextReel), and match keywords or any word (matchAnyWord).",
+        "Create a comment-to-DM campaign. It is always created paused and sends nothing until it is activated with set_campaign_active. Target a specific post (postId from list_recent_posts), any post (matchAnyPost) or the next post (pendingNextReel, optionally only posts published after nextReelFrom), and match keywords or any word (matchAnyWord).",
       inputSchema: createCampaignInput,
       annotations: { ...WRITE, idempotentHint: false },
     },

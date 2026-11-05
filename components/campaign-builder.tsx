@@ -21,6 +21,10 @@ import {
   campaignPostIds,
   MAX_CAMPAIGN_POSTS,
 } from "@/lib/campaigns/post-targets";
+import {
+  scheduledNextReelFrom,
+  toDateTimeLocalValue,
+} from "@/lib/campaigns/next-reel-from";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
 import { readCache, writeCache } from "@/lib/client-cache";
 import {
@@ -48,6 +52,7 @@ interface LoadedCampaign {
   postIds?: string[];
   postUrl: string | null;
   pendingNextReel: boolean;
+  nextReelArmedAt?: string | null;
   matchAnyPost: boolean;
   keywords: string[];
   matchAnyWord: boolean;
@@ -162,6 +167,9 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [isActive, setIsActive] = useState(true);
 
   const [triggerScope, setTriggerScope] = useState<TriggerScope>("specific");
+  // Optional local "YYYY-MM-DDTHH:mm": a next-post campaign only binds to a
+  // post published after it. Empty means "from when it is active".
+  const [nextReelFrom, setNextReelFrom] = useState("");
   const [selectedPosts, setSelectedPosts] = useState<SelectedPost[]>([]);
 
   // Post IDs already tied to another automation on this account, so the picker
@@ -269,6 +277,8 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setTriggerScope(
           c.matchAnyPost ? "any" : c.pendingNextReel ? "next" : "specific"
         );
+        const scheduled = scheduledNextReelFrom(c.nextReelArmedAt);
+        setNextReelFrom(scheduled ? toDateTimeLocalValue(scheduled) : "");
         setSelectedPosts(
           campaignPostIds(c).map((id, i) => ({
             id,
@@ -438,6 +448,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       postUrl: triggerScope === "specific" ? selectedPosts[0]?.url ?? null : null,
       matchAnyPost: triggerScope === "any",
       pendingNextReel: triggerScope === "next",
+      nextReelFrom:
+        triggerScope === "next" && nextReelFrom
+          ? new Date(nextReelFrom).toISOString()
+          : null,
       matchAnyWord: matchMode === "any",
       keywords: matchMode === "any" ? [] : keywords,
       wholeWordMatch,
@@ -736,6 +750,28 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           >
             {t("next post or reel")}
           </Radio>
+          {triggerScope === "next" && (
+            <div className="space-y-1 rounded-lg border border-border p-3">
+              <label
+                htmlFor="next-reel-from"
+                className="block text-sm text-foreground"
+              >
+                {t("Only posts published after (optional)")}
+              </label>
+              <input
+                id="next-reel-from"
+                type="datetime-local"
+                value={nextReelFrom}
+                onChange={(e) => setNextReelFrom(e.target.value)}
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+              />
+              <p className="text-xs text-muted">
+                {t(
+                  "Set it a few minutes before a scheduled reel and activate the campaign now: posts published earlier are skipped. Leave empty to use the next post after activation."
+                )}
+              </p>
+            </div>
+          )}
         </Section>
 
         <Section title={t("And this comment has")}>

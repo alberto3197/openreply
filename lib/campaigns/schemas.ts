@@ -4,6 +4,12 @@ import { MAX_CAMPAIGN_POSTS } from "@/lib/campaigns/post-targets";
 // Input schemas for creating and editing campaigns, shared by the dashboard API
 // (app/api/automations) and the MCP write tools.
 
+// A next-reel campaign binds to the first post published after this moment, so
+// it can be armed ahead of a scheduled reel. An ISO date-time with an offset;
+// null drops a previously set time. Kept a string (no transform) so the MCP SDK
+// can still describe it as JSON Schema; the mutation service parses it.
+const nextReelFromSchema = z.iso.datetime({ offset: true }).optional().nullable();
+
 // The create fields without the cross-field rules below. Kept separate so other
 // entry points (the MCP tools) can derive narrower input shapes from it.
 export const createCampaignFieldsSchema = z.object({
@@ -15,6 +21,7 @@ export const createCampaignFieldsSchema = z.object({
   postIds: z.array(z.string().min(1)).max(MAX_CAMPAIGN_POSTS).optional(),
   postUrl: z.string().url().optional().nullable(),
   pendingNextReel: z.boolean().optional().default(false),
+  nextReelFrom: nextReelFromSchema,
   matchAnyPost: z.boolean().optional().default(false),
   keywords: z.array(z.string().min(1).max(50)).max(10).optional().default([]),
   matchAnyWord: z.boolean().optional().default(false),
@@ -87,6 +94,7 @@ export const updateCampaignSchema = z.object({
   postIds: z.array(z.string().min(1)).max(MAX_CAMPAIGN_POSTS).optional(),
   postUrl: z.string().url().optional().nullable(),
   pendingNextReel: z.boolean().optional(),
+  nextReelFrom: nextReelFromSchema,
   matchAnyPost: z.boolean().optional(),
   keywords: z.array(z.string().min(1).max(50)).max(10).optional(),
   matchAnyWord: z.boolean().optional(),
